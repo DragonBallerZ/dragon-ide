@@ -255,7 +255,8 @@ try {
 	const modePicker = win.locator('.interactive-input-part .chat-mode-picker-item');
 	const setMode = async (label: 'Agent' | 'Ask') => {
 		await modePicker.click();
-		await win.locator('.action-widget .monaco-list-row').filter({ hasText: new RegExp(`^\\s*${label}\\b`) }).first().click({ timeout: STEP_TIMEOUT });
+		// Match the row's label alone: the row's text runs on into its keybinding ("AgentCtrl+Shift+Alt+I" off macOS).
+		await win.locator('.action-widget .monaco-list-row .title', { hasText: new RegExp(`^\\s*${label}\\s*$`) }).first().click({ timeout: STEP_TIMEOUT });
 		await modePicker.filter({ hasText: label }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
 	};
 
