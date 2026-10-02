@@ -16,6 +16,7 @@
 //   Without --app it runs the development build (after `npm run compile` and `npm run electron`).
 //   Linux: run under xvfb-run.
 
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as os from 'node:os';
@@ -358,7 +359,13 @@ try {
 	if (app) {
 		const closed = await Promise.race([app.close().then(() => true, () => false), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 15_000))]);
 		if (!closed) {
-			app.process().kill('SIGKILL');
+			// On Windows a kill ends only the main process, and the OpenCode server it started keeps the workspace
+			// (its working folder) in use, so end the whole tree.
+			if (process.platform === 'win32') {
+				spawnSync('taskkill', ['/pid', String(app.process().pid), '/t', '/f']);
+			} else {
+				app.process().kill('SIGKILL');
+			}
 		}
 	}
 	fs.writeFileSync(path.join(out, 'mock-requests.json'), JSON.stringify(mock.requests, null, 2));
@@ -370,7 +377,12 @@ try {
 		fs.cpSync(path.join(userData, 'logs'), path.join(out, 'logs'), { recursive: true, force: true });
 	}
 	await mock.close();
-	fs.rmSync(temp, { recursive: true, force: true });
+	try {
+		fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+	} catch (err) {
+		// Windows can keep an ended process's files in use a little longer; a leftover temp folder fails no check.
+		console.log(`note: could not remove ${temp}: ${err instanceof Error ? err.message : String(err)}`);
+	}
 }
 console.log(failed ? 'Modes smoke test failed.' : 'Modes smoke test passed.');
 console.log(`Screenshots and logs: ${out}`);

@@ -19,6 +19,7 @@
 // Usage: node scripts/dragon/smoke-onboarding.mts [--app <packaged app dir>] [--out <dir>]
 //   Without --app it runs the development build (after `npm run compile` and `npm run electron`).
 //   Linux: run under xvfb-run. Screenshots, the OpenCode log and the app's logs go to --out.
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as os from 'node:os';
@@ -307,7 +308,13 @@ try {
 		// A prompt on close (such as keeping the chat's edits) can veto a graceful quit; don't wait on it.
 		const closed = await Promise.race([app.close().then(() => true, () => false), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 15_000))]);
 		if (!closed) {
-			app.process().kill('SIGKILL');
+			// On Windows a kill ends only the main process, and the OpenCode server it started keeps the workspace
+			// (its working folder) in use, so end the whole tree.
+			if (process.platform === 'win32') {
+				spawnSync('taskkill', ['/pid', String(app.process().pid), '/t', '/f']);
+			} else {
+				app.process().kill('SIGKILL');
+			}
 		}
 	}
 	fs.writeFileSync(path.join(out, 'mock-requests.json'), JSON.stringify(mock.requests, null, 2));
@@ -318,7 +325,12 @@ try {
 	if (fs.existsSync(path.join(userData, 'logs'))) {
 		fs.cpSync(path.join(userData, 'logs'), path.join(out, 'logs'), { recursive: true, force: true });
 	}
-	fs.rmSync(temp, { recursive: true, force: true });
+	try {
+		fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+	} catch (err) {
+		// Windows can keep an ended process's files in use a little longer; a leftover temp folder fails no check.
+		console.log(`note: could not remove ${temp}: ${err instanceof Error ? err.message : String(err)}`);
+	}
 }
 console.log(failed ? 'Onboarding smoke test failed.' : skipped ? 'Onboarding smoke test passed, with the local-model turn skipped (see SKIP above).' : 'Onboarding smoke test passed.');
 console.log(`Screenshots and logs: ${out}`);
