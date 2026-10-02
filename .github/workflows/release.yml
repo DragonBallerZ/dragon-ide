@@ -81,6 +81,10 @@ jobs:
           Write-Output "signtool: $($tool.FullName)"
       - name: npm ci
         run: npm ci
+        env:
+          # @vscode/ripgrep's install script downloads its binary through GitHub's API, which allows 60 requests
+          # an hour per runner IP without a token. Shared runners run out (HTTP 403).
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Stamp the Dragon IDE version from the tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash

@@ -72,6 +72,9 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+          # @vscode/ripgrep's install script downloads its binary through GitHub's API, which allows 60 requests
+          # an hour per runner IP without a token. Shared runners run out (HTTP 403).
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Type check
         run: NODE_OPTIONS=--max-old-space-size=8192 npx tsc --project ./src/tsconfig.json --noEmit --skipLibCheck
       - name: Layer check
@@ -97,6 +100,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libkrb5-dev libsecret-1-dev libxkbfile-dev xvfb libgbm1 libnss3 libasound2t64 libgtk-3-0 libxss1
       - name: npm ci
         run: npm ci
+        env:
+          # @vscode/ripgrep's install script downloads its binary through GitHub's API, which allows 60 requests
+          # an hour per runner IP without a token. Shared runners run out (HTTP 403).
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Add swap (the build can outgrow the runner's memory)
         run: |
           # The runner's disk is small, so make room first. These preinstalled toolchains are not used here.
@@ -142,6 +149,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libkrb5-dev libsecret-1-dev libxkbfile-dev xvfb imagemagick libgbm1 libnss3 libasound2t64 libgtk-3-0 libxss1
       - name: npm ci
         run: npm ci
+        env:
+          # @vscode/ripgrep's install script downloads its binary through GitHub's API, which allows 60 requests
+          # an hour per runner IP without a token. Shared runners run out (HTTP 403).
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Bundle OpenCode
         run: node scripts/dragon/build-opencode.mts
       - name: Add swap (the build can outgrow the runner's memory)
