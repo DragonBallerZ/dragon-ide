@@ -1,0 +1,14 @@
+Package: @@NAME@@
+Version: @@VERSION@@
+Section: devel
+Depends: @@DEPENDS@@
+Recommends: @@RECOMMENDS@@
+Priority: optional
+Architecture: @@ARCHITECTURE@@
+Maintainer: Dragon IDE contributors <https://github.com/VELLORAAI/dragon-ide>
+Homepage: https://github.com/VELLORAAI/dragon-ide
+Installed-Size: @@INSTALLEDSIZE@@
+Description: An open-source AI code editor powered by OpenCode.
+ Dragon IDE is VS Code with OpenCode as its agent: chat, inline edits, Tab
+ completions and indexed code search, with local models through Ollama or
+ the provider of your choice. See https://github.com/VELLORAAI/dragon-ide.

@@ -1,0 +1,125 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Vellora AI and Dragon IDE contributors. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* Dragon composer chips: permission mode and working directory. */
+
+.dragon-composer-chips {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-right: 6px;
+	flex: 0 1 auto;
+	min-width: 0;
+}
+
+.dragon-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 180px;
+	padding: 3px 9px;
+	border-radius: 11px;
+	font-size: 11px;
+	font-family: var(--monaco-monospace-font, ui-monospace, SFMono-Regular, monospace);
+	line-height: 1.4;
+	background: var(--vscode-editorWidget-background, #1f1f1f);
+	border: 1px solid currentColor;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+	user-select: none;
+	transition: filter 0.15s ease;
+}
+
+.dragon-chip:hover {
+	filter: brightness(1.18);
+}
+
+.dragon-chip:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder, #ffd07a);
+	outline-offset: 1px;
+}
+
+.dragon-chip .dragon-chip-glyph {
+	font-size: 10px;
+	flex: 0 0 auto;
+}
+
+.dragon-chip .dragon-chip-label {
+	font-weight: 500;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.dragon-permission-readonly { color: #7be0a3; }
+.dragon-permission-ask { color: #ffd166; }
+.dragon-permission-full { color: #ff6b6b; }
+
+/* Usage readout (context ring, cache hit, price). Ring and pills adapted from DeepSeek Harness's */
+/* ContextMeter and StatsPills (MIT); colors come from the theme. */
+.dragon-usage {
+	display: inline-flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 2px;
+	flex: 0 1 auto;
+	max-width: 100%;
+	min-width: 0;
+	font-variant-numeric: tabular-nums;
+}
+
+/* The readout sits at the end of the composer's secondary toolbar, where the workbench's own */
+/* context meter goes, and moves to a row of its own when the composer is too narrow for one. */
+.interactive-session .chat-secondary-toolbar:has(> .dragon-usage) {
+	flex-wrap: wrap;
+	row-gap: 2px;
+}
+
+.interactive-session .chat-secondary-toolbar > .dragon-usage {
+	order: 1;
+	margin-left: auto;
+}
+
+.dragon-usage-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 1px 7px;
+	border-radius: 999px;
+	font-size: 11px;
+	line-height: 18px;
+	white-space: nowrap;
+	color: var(--vscode-descriptionForeground);
+	cursor: default;
+}
+
+.dragon-usage-pill:hover,
+.dragon-usage-pill:focus-visible {
+	background: var(--vscode-toolbar-hoverBackground);
+	color: var(--vscode-foreground);
+}
+
+.dragon-usage-pill:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+.dragon-ring-track {
+	fill: none;
+	stroke: var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+	stroke-width: 2;
+}
+
+.dragon-ring-fill {
+	fill: none;
+	stroke: var(--vscode-button-background, #f97316);
+	stroke-width: 2;
+	stroke-linecap: round;
+}
+
+.dragon-ring-fill.dragon-ring-high {
+	stroke: var(--vscode-editorWarning-foreground, #d18616);
+}

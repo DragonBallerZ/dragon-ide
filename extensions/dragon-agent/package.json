@@ -1,0 +1,373 @@
+{
+	"name": "dragon-agent",
+	"displayName": "Dragon Agent (OpenCode)",
+	"description": "Runs OpenCode as Dragon IDE's agent: the chat view, the OpenCode TUI terminal, and local models through Ollama or Splash.",
+	"version": "1.1.2",
+	"publisher": "vscode",
+	"license": "MIT",
+	"icon": "media/dragon.png",
+	"engines": {
+		"vscode": "^1.139.0"
+	},
+	"categories": [
+		"AI",
+		"Chat"
+	],
+	"extensionKind": [
+		"workspace"
+	],
+	"main": "./out/extension",
+	"activationEvents": [
+		"onStartupFinished",
+		"onChatParticipant:dragon.agent",
+		"onChatParticipant:dragon.edit",
+		"onChatParticipant:dragon.ask",
+		"onChatParticipant:dragon.inline",
+		"onLanguageModelChatProvider:dragon",
+		"onTerminalProfile:dragon.opencode",
+		"onCommand:dragon.onboarding.state",
+		"onCommand:dragon.moveSession"
+	],
+	"enabledApiProposals": [
+		"chatParticipantAdditions",
+		"chatParticipantPrivate",
+		"defaultChatParticipant",
+		"chatProvider",
+		"languageModelThinkingPart"
+	],
+	"capabilities": {
+		"virtualWorkspaces": false,
+		"untrustedWorkspaces": {
+			"supported": false,
+			"description": "OpenCode reads, edits and runs code in the workspace, so it only runs in trusted workspaces."
+		}
+	},
+	"contributes": {
+		"chatParticipants": [
+			{
+				"id": "dragon.agent",
+				"name": "dragon",
+				"fullName": "Dragon",
+				"description": "OpenCode agent: plans, edits files and runs commands",
+				"isDefault": true,
+				"isAgent": true,
+				"isEngine": true,
+				"locations": [
+					"panel"
+				],
+				"modes": [
+					"agent"
+				],
+				"commands": [
+					{
+						"name": "new",
+						"description": "Start a new OpenCode session"
+					},
+					{
+						"name": "compact",
+						"description": "Summarize the session to free up context"
+					},
+					{
+						"name": "tui",
+						"description": "Open this session in the OpenCode TUI"
+					}
+				]
+			},
+			{
+				"id": "dragon.edit",
+				"name": "dragon",
+				"fullName": "Dragon",
+				"description": "OpenCode agent: edits files",
+				"isDefault": true,
+				"locations": [
+					"panel"
+				],
+				"modes": [
+					"edit"
+				]
+			},
+			{
+				"id": "dragon.ask",
+				"name": "dragon",
+				"fullName": "Dragon",
+				"description": "OpenCode plan agent: answers and plans without changing files",
+				"isDefault": true,
+				"locations": [
+					"panel"
+				],
+				"modes": [
+					"ask"
+				]
+			},
+			{
+				"id": "dragon.inline",
+				"name": "dragon",
+				"fullName": "Dragon",
+				"description": "Edit code in place with OpenCode",
+				"isDefault": true,
+				"locations": [
+					"editor"
+				]
+			}
+		],
+		"languageModelChatProviders": [
+			{
+				"vendor": "dragon",
+				"displayName": "OpenCode"
+			}
+		],
+		"terminal": {
+			"profiles": [
+				{
+					"id": "dragon.opencode",
+					"title": "OpenCode",
+					"icon": "flame"
+				}
+			]
+		},
+		"commands": [
+			{
+				"command": "dragon.chooseModel",
+				"title": "Choose Model",
+				"category": "Dragon"
+			},
+			{
+				"command": "dragon.openTui",
+				"title": "Open OpenCode TUI",
+				"category": "Dragon",
+				"icon": "$(terminal)"
+			},
+			{
+				"command": "dragon.continueInTui",
+				"title": "Continue Chat in OpenCode TUI",
+				"category": "Dragon",
+				"icon": "$(terminal)"
+			},
+			{
+				"command": "dragon.continueInChat",
+				"title": "Continue OpenCode Session in Chat",
+				"category": "Dragon",
+				"icon": "$(comment-discussion)"
+			},
+			{
+				"command": "dragon.ollama.pull",
+				"title": "Download a Local Model (Ollama)",
+				"category": "Dragon"
+			},
+			{
+				"command": "dragon.restartServer",
+				"title": "Restart OpenCode",
+				"category": "Dragon"
+			},
+			{
+				"command": "dragon.showLog",
+				"title": "Show OpenCode Log",
+				"category": "Dragon"
+			},
+			{
+				"command": "dragon.moveSession",
+				"title": "Choose Working Directory",
+				"category": "Dragon"
+			},
+			{
+				"command": "dragon.semanticSearch.setup",
+				"title": "Set Up Semantic Search",
+				"category": "Dragon"
+			},
+			{
+				"command": "dragon.checkForUpdates",
+				"title": "Check for Updates",
+				"category": "Dragon"
+			},
+			{
+				"command": "dragon.completions.setup",
+				"title": "Set Up Tab Completions",
+				"category": "Dragon"
+			},
+			{
+				"command": "dragon.localAI.setup",
+				"title": "Set Up Local AI",
+				"category": "Dragon"
+			}
+		],
+		"menus": {
+			"view/title": [
+				{
+					"command": "dragon.continueInTui",
+					"when": "view == workbench.panel.chat.view.copilot",
+					"group": "navigation@9"
+				}
+			],
+			"commandPalette": [
+				{
+					"command": "dragon.continueInTui"
+				}
+			]
+		},
+		"configuration": {
+			"title": "Dragon",
+			"properties": {
+				"dragon.model": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Default model as `provider/model` (for example `ollama/qwen2.5-coder:7b` or `anthropic/claude-sonnet-5`). Used by the chat view and the OpenCode TUI. Leave empty to use OpenCode's own default."
+				},
+				"dragon.permissionMode": {
+					"type": "string",
+					"enum": [
+						"read-only",
+						"ask",
+						"full-access"
+					],
+					"enumDescriptions": [
+						"OpenCode plans and answers but may not change files or run commands.",
+						"OpenCode asks in the chat before it edits files or runs commands.",
+						"OpenCode edits files and runs commands without asking."
+					],
+					"default": "ask",
+					"description": "How much OpenCode may do without asking. The chip in the chat composer cycles this setting."
+				},
+				"dragon.workingDirectory": {
+					"type": "string",
+					"default": "",
+					"description": "Directory OpenCode works in. Defaults to the first workspace folder."
+				},
+				"dragon.opencode.path": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "Path to an `opencode` binary to use instead of the bundled one."
+				},
+				"dragon.ollama.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Detect a local Ollama daemon and offer its models."
+				},
+				"dragon.ollama.origin": {
+					"type": "string",
+					"default": "http://127.0.0.1:11434",
+					"scope": "machine",
+					"description": "Where Ollama listens. Only loopback addresses are used."
+				},
+				"dragon.instantGrep.enabled": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "Replace OpenCode's `grep` and `glob` with **Instant Grep**: a local trigram index (never uploaded) that answers regex searches in milliseconds, with results verified by ripgrep. Also adds `find_files` for fuzzy file lookup."
+				},
+				"dragon.semanticSearch.enabled": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "Give OpenCode `codebase_search`: find code by meaning with a local embedding model served by Ollama, fused with Instant Grep keyword matches. The workspace is embedded on this machine in the background; nothing is uploaded. Needs Ollama and `#dragon.instantGrep.enabled#`."
+				},
+				"dragon.semanticSearch.model": {
+					"type": "string",
+					"default": "qwen3-embedding:0.6b",
+					"markdownDescription": "Ollama embedding model for `codebase_search`, for example `qwen3-embedding:0.6b`, `nomic-embed-text` or `embeddinggemma`. Changing it re-embeds the workspace. Run **Dragon: Set Up Semantic Search** to download it."
+				},
+				"dragon.updates.check": {
+					"type": "boolean",
+					"default": true,
+					"scope": "application",
+					"markdownDescription": "Once a day, check for a newer Dragon IDE release and offer to download it. The check is one anonymous request to the release feed in `product.json` (GitHub releases). Nothing is downloaded without a click."
+				},
+				"dragon.completions.enabled": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "Suggest code as you type (ghost text; press Tab to accept) with a small local model through Ollama. Nothing is sent anywhere else. Runs only when `#dragon.completions.model#` is installed: run **Dragon: Set Up Tab Completions**."
+				},
+				"dragon.completions.model": {
+					"type": "string",
+					"default": "qwen2.5-coder:1.5b",
+					"markdownDescription": "Ollama model for Tab completions. It must support fill-in-the-middle, like `qwen2.5-coder:1.5b` (fast) or `qwen2.5-coder:7b` (better, slower)."
+				}
+			}
+		},
+		"walkthroughs": [
+			{
+				"id": "dragon.gettingStarted",
+				"title": "Get Started with Dragon IDE",
+				"description": "Pick a model, meet your OpenCode agent, get Tab completions, set the agent's limits and search your code by meaning.",
+				"steps": [
+					{
+						"id": "chooseModel",
+						"title": "Pick a model",
+						"description": "Run a model on this machine with Ollama, connect an API key, or sign in to a provider.\n[Choose a Model](command:dragon.chooseModel)",
+						"media": {
+							"markdown": "media/walkthrough/models.md"
+						},
+						"completionEvents": [
+							"onSettingChanged:dragon.model",
+							"onCommand:dragon.chooseModel"
+						]
+					},
+					{
+						"id": "chat",
+						"title": "Chat with your agent",
+						"description": "Ask @dragon to explain, fix or build something. Tool calls stream in as live cards, and edits arrive as a diff.\n[Open the Chat](command:workbench.action.chat.open)",
+						"media": {
+							"markdown": "media/walkthrough/chat.md"
+						},
+						"completionEvents": [
+							"onCommand:workbench.action.chat.open"
+						]
+					},
+					{
+						"id": "completions",
+						"title": "Tab completions",
+						"description": "Ghost-text suggestions as you type, from a small model on this machine. Press Tab to accept.\n[Set Up Tab Completions](command:dragon.completions.setup)",
+						"media": {
+							"markdown": "media/walkthrough/completions.md"
+						},
+						"completionEvents": [
+							"onCommand:dragon.completions.setup"
+						]
+					},
+					{
+						"id": "permissions",
+						"title": "Decide how much it may do",
+						"description": "Read-Only, Ask or Full Access. Switch with the chip in the chat composer.\n[Open the Setting](command:workbench.action.openSettings?%5B%22dragon.permissionMode%22%5D)",
+						"media": {
+							"markdown": "media/walkthrough/permissions.md"
+						},
+						"completionEvents": [
+							"onSettingChanged:dragon.permissionMode"
+						]
+					},
+					{
+						"id": "tui",
+						"title": "Continue in the terminal",
+						"description": "The OpenCode TUI shares sessions with the chat.\n[Open the OpenCode TUI](command:dragon.openTui)",
+						"media": {
+							"markdown": "media/walkthrough/tui.md"
+						},
+						"completionEvents": [
+							"onCommand:dragon.openTui",
+							"onCommand:dragon.continueInTui"
+						]
+					},
+					{
+						"id": "search",
+						"title": "Search by meaning",
+						"description": "Instant Grep is already on. Add semantic search, which uses a local embedding model.\n[Set Up Semantic Search](command:dragon.semanticSearch.setup)",
+						"media": {
+							"markdown": "media/walkthrough/search.md"
+						},
+						"completionEvents": [
+							"onCommand:dragon.semanticSearch.setup"
+						]
+					}
+				]
+			}
+		]
+	},
+	"scripts": {
+		"compile": "npx gulp compile-extension:dragon-agent",
+		"watch": "npx gulp watch-extension:dragon-agent",
+		"test": "node --test out/test/*.test.js",
+		"pretest": "tsc -p ."
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/VELLORAAI/dragon-ide.git"
+	}
+}

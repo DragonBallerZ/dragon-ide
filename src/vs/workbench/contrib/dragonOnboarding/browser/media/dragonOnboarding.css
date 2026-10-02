@@ -1,0 +1,258 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Vellora AI and Dragon IDE contributors. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* Focused at rest, delightful on intent: the dragon and one entrance lead the page. */
+.dragon-onboarding {
+	position: absolute;
+	inset: 0;
+	z-index: 2570;
+	display: grid;
+	place-items: center;
+	overflow: auto;
+	color: #fff7ed;
+	background: radial-gradient(ellipse at 50% 40%, #382014 0, #171313 42%, #0d0d10 78%);
+	font-family: system-ui, sans-serif;
+	transition: opacity 260ms ease, transform 260ms ease;
+}
+
+.dragon-onboarding::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background-image: radial-gradient(#ff9c4524 1px, transparent 1px);
+	background-size: 28px 28px;
+	mask-image: radial-gradient(ellipse at center, #000, transparent 72%);
+}
+
+.dragon-onboarding-panel {
+	position: relative;
+	box-sizing: border-box;
+	width: min(100%, 720px);
+	padding: 40px 24px;
+	text-align: center;
+}
+
+.dragon-onboarding-eyebrow {
+	margin: 0 0 28px;
+	color: #c4a995;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.22em;
+}
+
+.dragon-onboarding-logo {
+	width: clamp(120px, 28vh, 240px);
+	aspect-ratio: 1;
+	margin: 0 auto 32px;
+	background-position: center;
+	background-repeat: no-repeat;
+	background-size: contain;
+	filter: drop-shadow(0 18px 36px #0008);
+}
+
+.monaco-workbench .dragon-onboarding-title {
+	margin: 0;
+	font-family: system-ui, sans-serif;
+	font-size: clamp(32px, 6vw, 64px);
+	font-weight: 600;
+	letter-spacing: -0.055em;
+	line-height: 1.1;
+}
+
+.dragon-onboarding-copy {
+	margin: 20px 0 32px;
+	font-size: clamp(16px, 2vw, 20px);
+	color: #c9bdb4;
+}
+
+.monaco-workbench .dragon-onboarding-enter {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 28px;
+	min-height: 60px;
+	padding: 16px 28px;
+	border: 1px solid #ffb754;
+	border-radius: 16px;
+	background: linear-gradient(135deg, #ffb52e, #ff7a10);
+	color: #261305;
+	font: 600 16px system-ui, sans-serif;
+	cursor: pointer;
+	box-shadow: 0 5px 0 #9e400a, 0 12px 32px #ff790020, inset 0 1px 0 #ffe3a5;
+	transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.dragon-onboarding-enter:hover {
+	transform: translateY(-3px) rotate(-1deg);
+	filter: brightness(1.08);
+	box-shadow: 0 8px 0 #9e400a, 0 18px 42px #ff790038, inset 0 1px 0 #ffe3a5;
+}
+
+.dragon-onboarding-enter:active {
+	transform: translateY(4px) scale(0.98);
+	box-shadow: 0 1px 0 #9e400a, 0 4px 14px #ff790030;
+}
+
+.dragon-onboarding-enter:focus-visible {
+	outline: 3px solid #fff7ed;
+	outline-offset: 7px;
+}
+
+.dragon-onboarding-arrow {
+	font-size: 24px;
+	transition: transform 160ms ease;
+}
+
+.dragon-onboarding-enter:hover .dragon-onboarding-arrow {
+	transform: translate(3px, -3px);
+}
+
+.dragon-onboarding-hint {
+	max-width: 360px;
+	margin: 28px auto 0;
+	font-size: 12px;
+	line-height: 1.7;
+	color: #b7a79b;
+}
+
+.dragon-onboarding-leaving {
+	opacity: 0;
+	transform: scale(1.035);
+	pointer-events: none;
+}
+
+/* Home remains useful without a provider; connecting is an explicit in-app action. */
+.dragon-home-actions {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	text-align: center;
+}
+
+.dragon-home-title {
+	font-size: 20px;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .part.editor > .content .gettingStartedContainer button.dragon-home-connect {
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-radius: 6px;
+	padding: 8px 24px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	font: inherit;
+	cursor: pointer;
+}
+
+.monaco-workbench .part.editor > .content .gettingStartedContainer button.dragon-home-connect:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.monaco-workbench .part.editor > .content .gettingStartedContainer button.dragon-home-connect:focus-visible {
+	outline: 2px solid var(--vscode-focusBorder);
+	outline-offset: 3px;
+}
+
+.monaco-workbench.hc-black .dragon-onboarding,
+.monaco-workbench.hc-light .dragon-onboarding {
+	background: var(--vscode-editor-background);
+	color: var(--vscode-editor-foreground);
+}
+
+.monaco-workbench.hc-black .dragon-onboarding-enter,
+.monaco-workbench.hc-light .monaco-workbench .dragon-onboarding-enter {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	border-color: var(--vscode-contrastBorder);
+	box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.dragon-onboarding,
+	.monaco-workbench .dragon-onboarding-enter,
+	.dragon-onboarding-arrow {
+		transition: none;
+	}
+
+	.dragon-onboarding-enter:hover,
+	.dragon-onboarding-enter:active,
+	.dragon-onboarding-enter:hover .dragon-onboarding-arrow,
+	.dragon-onboarding-leaving {
+		transform: none;
+	}
+}
+
+/* Shared dragon backdrop for the actual Welcome tab, behind its working links. */
+.monaco-workbench .gettingStartedContainer::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background: url('../../../../browser/parts/editor/media/dragon-mark.png') right -80px bottom -60px / min(75%, 560px) auto no-repeat;
+	opacity: 0.075;
+}
+
+.monaco-workbench .gettingStartedContainer .dragon-welcome-header {
+	position: relative;
+	padding-left: 112px;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .gettingStartedContainer .dragon-welcome-header::before {
+	content: '';
+	position: absolute;
+	left: 0;
+	top: 4px;
+	width: 88px;
+	height: 88px;
+	background: url('../../../../browser/parts/editor/media/dragon-mark.png') center / contain no-repeat;
+}
+
+.monaco-workbench .gettingStartedContainer .dragon-welcome-header .product-name {
+	font-family: system-ui, sans-serif;
+	font-weight: 600;
+	letter-spacing: -0.035em;
+}
+
+.monaco-workbench .dragon-welcome-header .dragon-home-title {
+	display: none;
+}
+
+.monaco-workbench .dragon-welcome-header .dragon-home-actions {
+	align-items: flex-start;
+	margin-top: 16px;
+}
+
+@media (max-width: 700px) {
+	.monaco-workbench .gettingStartedContainer .dragon-welcome-header {
+		padding-left: 0;
+		padding-top: 88px;
+	}
+
+	.monaco-workbench .gettingStartedContainer .dragon-welcome-header::before {
+		width: 72px;
+		height: 72px;
+	}
+}
+
+.monaco-workbench.hc-black .dragon-onboarding p,
+.monaco-workbench.hc-light .dragon-onboarding p {
+	color: var(--vscode-editor-foreground);
+}
+
+.monaco-workbench.hc-black .dragon-onboarding::before,
+.monaco-workbench.hc-light .dragon-onboarding::before {
+	display: none;
+}
+
+.monaco-workbench.hc-black .dragon-onboarding-enter:focus-visible,
+.monaco-workbench.hc-light .dragon-onboarding-enter:focus-visible {
+	outline-color: var(--vscode-focusBorder);
+}

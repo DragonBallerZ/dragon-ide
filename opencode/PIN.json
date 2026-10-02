@@ -1,0 +1,13 @@
+{
+	"upstreamRepo": "https://github.com/sst/opencode",
+	"tag": "v2.0.18",
+	"commit": "cd9a14a6b688d4021bee381dfd39d2cef9c0f862",
+	"license": "MIT",
+	"importedAt": "2026-09-28",
+	"pruned": [
+		"artifacts/",
+		"**/*.mp4",
+		"README.<lang>.md (translations)"
+	],
+	"patches": "../opencode-patches/"
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicolo-ribaudo/oxc-project.github.io/refs/heads/json-schema/src/public/.oxlintrc.schema.json",
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "rules": {
+    "no-restricted-globals": [
+      "error",
+      {
+        "name": "Reflect",
+        "message": "Use typed property access or direct invocation. Suppress this rule only for genuine reflection."
+      }
+    ]
+  },
+  "ignorePatterns": ["**/node_modules", "**/dist", "**/.build", "**/.sst", "**/*.d.ts", "**/sdk.gen.ts"]
+}

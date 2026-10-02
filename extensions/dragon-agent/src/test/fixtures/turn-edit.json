@@ -1,0 +1,507 @@
+{
+	"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+	"events": [
+		{
+			"id": "evt_0e5cc1592001WCVXJ3tJsFXp22",
+			"type": "server.connected",
+			"data": {}
+		},
+		{
+			"id": "evt_0e5cc15b3001B77ANeA66JQWj3",
+			"created": 1790561752499,
+			"type": "session.created",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"slug": "quick-otter",
+				"version": "2.0.18",
+				"projectID": "global",
+				"location": {
+					"directory": "/workspace"
+				},
+				"subpath": ""
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 0,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc15c4001y0IerpuIOELlkx",
+			"created": 1790561752516,
+			"type": "session.inbox.enqueued",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"inboxID": "msg_0e5cc15c20016D28vj4yr5iFIV",
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"item": {
+					"type": "user",
+					"payload": {
+						"text": "Read hello.txt then change it."
+					},
+					"delivery": "steer"
+				}
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 1,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc15c8001CQ5WuxT2ZrRtCn",
+			"created": 1790561752520,
+			"type": "session.execution.started",
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4"
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 2,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc15e8001kgzEv2AjXE7NlJ",
+			"created": 1790561752552,
+			"type": "session.inbox.delivered",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"inboxID": "msg_0e5cc15c20016D28vj4yr5iFIV"
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 4,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc1614001WD5OascHWQo0K3",
+			"created": 1790561752596,
+			"type": "session.usage.updated",
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"cost": 0,
+				"tokens": {
+					"input": 10,
+					"output": 5,
+					"reasoning": 0,
+					"cache": {
+						"read": 0,
+						"write": 0
+					}
+				}
+			}
+		},
+		{
+			"id": "evt_0e5cc164c001LOD6iZdbHiljVc",
+			"created": 1790561752652,
+			"type": "session.step.started",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"agent": "build",
+				"model": {
+					"id": "qwen2.5-coder:7b",
+					"providerID": "ollama"
+				},
+				"assistantMessageID": "msg_0e5cc15fe001B3Cn0dQGz3RwIv",
+				"snapshot": "0000000000000000000000000000000000000000",
+				"started": 1790561752647
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 6,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc164f001W8H4muhMVAgcwU",
+			"created": 1790561752655,
+			"type": "session.tool.input.started",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc15fe001B3Cn0dQGz3RwIv",
+				"id": "call_ixzl4av1s1h",
+				"name": "edit"
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 7,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc1653001FtDXrrXyoIzEiG",
+			"created": 1790561752659,
+			"type": "session.tool.input.ended",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc15fe001B3Cn0dQGz3RwIv",
+				"id": "call_ixzl4av1s1h",
+				"text": "{\"path\":\"hello.txt\",\"oldString\":\"hello world\",\"newString\":\"hello dragon\"}"
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 8,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc1655001KioOeK2x2hWj5X",
+			"created": 1790561752661,
+			"type": "session.tool.called",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc15fe001B3Cn0dQGz3RwIv",
+				"id": "call_ixzl4av1s1h",
+				"input": {
+					"path": "hello.txt",
+					"oldString": "hello world",
+					"newString": "hello dragon"
+				},
+				"executed": false
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 9,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc1658001yYwkus6tlpg5kH",
+			"created": 1790561752664,
+			"type": "session.step.streamed",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc15fe001B3Cn0dQGz3RwIv"
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 10,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc165f001RSS6rDROJgkZOw",
+			"created": 1790561752671,
+			"type": "session.tool.success",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc15fe001B3Cn0dQGz3RwIv",
+				"id": "call_ixzl4av1s1h",
+				"content": [
+					{
+						"type": "text",
+						"text": "Edited hello.txt (1 replacement)"
+					}
+				],
+				"metadata": {
+					"files": [
+						{
+							"file": "hello.txt",
+							"patch": "Index: hello.txt\n===================================================================\n--- hello.txt\n+++ hello.txt\n@@ -1,1 +1,1 @@\n-hello world\n+hello dragon\n",
+							"status": "modified",
+							"additions": 1,
+							"deletions": 1
+						}
+					],
+					"truncated": false
+				},
+				"executed": false
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 11,
+				"version": 2
+			}
+		},
+		{
+			"id": "evt_0e5cc16820016kdnfflxJPC8VM",
+			"created": 1790561752706,
+			"type": "session.step.ended",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc15fe001B3Cn0dQGz3RwIv",
+				"finish": "tool-calls",
+				"rawFinish": "tool_calls",
+				"cost": 0,
+				"tokens": {
+					"input": 10,
+					"output": 5,
+					"reasoning": 0,
+					"cache": {
+						"read": 0,
+						"write": 0
+					}
+				},
+				"snapshot": "0000000000000000000000000000000000000000",
+				"files": [
+					"hello.txt"
+				]
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 12,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc1685001bkv97zc44PWELL",
+			"created": 1790561752709,
+			"type": "session.usage.updated",
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"cost": 0,
+				"tokens": {
+					"input": 20,
+					"output": 10,
+					"reasoning": 0,
+					"cache": {
+						"read": 0,
+						"write": 0
+					}
+				}
+			}
+		},
+		{
+			"id": "evt_0e5cc16b9001FEG1cdyekg6Oyl",
+			"created": 1790561752761,
+			"type": "session.step.started",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"agent": "build",
+				"model": {
+					"id": "qwen2.5-coder:7b",
+					"providerID": "ollama"
+				},
+				"assistantMessageID": "msg_0e5cc168f001T8cxBtT1KNt2sf",
+				"snapshot": "0000000000000000000000000000000000000000",
+				"started": 1790561752755
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 13,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc16bc0014sNnJ8gXanH6MB",
+			"created": 1790561752764,
+			"type": "session.reasoning.started",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc168f001T8cxBtT1KNt2sf",
+				"ordinal": 0,
+				"state": {
+					"reasoningField": "reasoning_content"
+				}
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 14,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc16bf001jnjppvPBmgNFWs",
+			"created": 1790561752767,
+			"type": "session.reasoning.delta",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc168f001T8cxBtT1KNt2sf",
+				"ordinal": 0,
+				"delta": "Thinking about the file."
+			}
+		},
+		{
+			"id": "evt_0e5cc16c0001cawAm75E4MD1H3",
+			"created": 1790561752768,
+			"type": "session.text.started",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc168f001T8cxBtT1KNt2sf",
+				"ordinal": 0
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 15,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc16c3001bubP5WiN1hkJMT",
+			"created": 1790561752771,
+			"type": "session.reasoning.ended",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc168f001T8cxBtT1KNt2sf",
+				"ordinal": 0,
+				"text": "Thinking about the file.",
+				"state": {
+					"reasoningField": "reasoning_content"
+				}
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 16,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc16cc001Qql7PGJaOTY2iW",
+			"created": 1790561752780,
+			"type": "session.text.delta",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc168f001T8cxBtT1KNt2sf",
+				"ordinal": 0,
+				"delta": "The file said hello world and now says hello dragon."
+			}
+		},
+		{
+			"id": "evt_0e5cc16cc0026M2KnONbDaoC5T",
+			"created": 1790561752780,
+			"type": "session.text.ended",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc168f001T8cxBtT1KNt2sf",
+				"ordinal": 0,
+				"text": "The file said hello world and now says hello dragon."
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 17,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc16d4001QBSOwX26xtTd0z",
+			"created": 1790561752788,
+			"type": "session.step.streamed",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc168f001T8cxBtT1KNt2sf"
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 18,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc16e7001mm51tGxRkUAdlc",
+			"created": 1790561752807,
+			"type": "session.step.ended",
+			"location": {
+				"directory": "/workspace"
+			},
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"assistantMessageID": "msg_0e5cc168f001T8cxBtT1KNt2sf",
+				"finish": "stop",
+				"rawFinish": "stop",
+				"cost": 0,
+				"tokens": {
+					"input": 10,
+					"output": 5,
+					"reasoning": 0,
+					"cache": {
+						"read": 0,
+						"write": 0
+					}
+				},
+				"snapshot": "0000000000000000000000000000000000000000",
+				"files": []
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 19,
+				"version": 1
+			}
+		},
+		{
+			"id": "evt_0e5cc16e9001rRoCFCpqPKMnvl",
+			"created": 1790561752809,
+			"type": "session.usage.updated",
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"cost": 0,
+				"tokens": {
+					"input": 30,
+					"output": 15,
+					"reasoning": 0,
+					"cache": {
+						"read": 0,
+						"write": 0
+					}
+				}
+			}
+		},
+		{
+			"id": "evt_0e5cc16eb0019XOjzFxecgNx2Q",
+			"created": 1790561752811,
+			"type": "session.execution.succeeded",
+			"data": {
+				"sessionID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4"
+			},
+			"durable": {
+				"aggregateID": "ses_f1a33ea66ffeVR7qEWKRpBF3Y4",
+				"seq": 20,
+				"version": 1
+			}
+		}
+	]
+}

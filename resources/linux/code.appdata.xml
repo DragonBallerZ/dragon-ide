@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop">
+	<id>@@NAME@@.desktop</id>
+	<metadata_license>@@LICENSE@@</metadata_license>
+	<project_license>@@LICENSE@@</project_license>
+	<name>@@NAME_LONG@@</name>
+	<url type="homepage">https://github.com/VELLORAAI/dragon-ide</url>
+	<summary>An open-source AI code editor powered by OpenCode</summary>
+	<description>
+		<p>Dragon IDE is VS Code with OpenCode as its agent: chat, inline edits, Tab completions and indexed code search, with local models through Ollama or the provider of your choice.</p>
+	</description>
+	<screenshots>
+		<screenshot type="default">
+			<image>https://raw.githubusercontent.com/VELLORAAI/dragon-ide/main/docs/images/onboarding.png</image>
+			<caption>The Dragon IDE onboarding screen</caption>
+		</screenshot>
+	</screenshots>
+</component>

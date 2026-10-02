@@ -1,0 +1,180 @@
+{
+	"nameShort": "Dragon IDE",
+	"nameLong": "Dragon IDE",
+	"dragonVersion": "1.1.2",
+	"dragonUpdateFeed": "https://api.github.com/repos/VELLORAAI/dragon-ide/releases/latest",
+	"applicationName": "dragon-ide",
+	"dataFolderName": ".dragon-ide",
+	"sharedDataFolderName": ".dragon-ide-shared",
+	"win32MutexName": "dragonide",
+	"licenseName": "MIT",
+	"licenseUrl": "https://github.com/VELLORAAI/dragon-ide/blob/main/LICENSE.txt",
+	"serverLicenseUrl": "https://github.com/VELLORAAI/dragon-ide/blob/main/LICENSE.txt",
+	"serverGreeting": [],
+	"serverLicense": [],
+	"serverLicensePrompt": "",
+	"serverApplicationName": "dragon-ide-server",
+	"serverDataFolderName": ".dragon-ide-server",
+	"tunnelApplicationName": "dragon-ide-tunnel",
+	"win32DirName": "Dragon IDE",
+	"win32NameVersion": "Dragon IDE",
+	"win32RegValueName": "DragonIDE",
+	"win32x64AppId": "{{D77B7E06-80BA-4137-BCF4-654B95CCEBC5}",
+	"win32arm64AppId": "{{D1ACE434-89C5-48D1-88D3-E2991DF85475}",
+	"win32x64UserAppId": "{{CC6B787D-37A0-49E8-AE24-8559A032BE0C}",
+	"win32arm64UserAppId": "{{3AEBF0C8-F733-4AD4-BADE-FDB816D53D7B}",
+	"win32AppUserModelId": "Vellora.DragonIDE",
+	"win32ShellNameShort": "&Dragon IDE",
+	"win32TunnelServiceMutex": "dragonide-tunnelservice",
+	"win32TunnelMutex": "dragonide-tunnel",
+	"darwinBundleIdentifier": "ai.vellora.dragon-ide",
+	"darwinProfileUUID": "47827DD9-4734-49A0-AF80-7E19B11495CC",
+	"darwinProfilePayloadUUID": "CF808BE7-53F3-46C6-A7E2-7EDB98A5E959",
+	"linuxDesktopName": "ai.vellora.DragonIDE",
+	"linuxIconName": "dragon-ide",
+	"licenseFileName": "LICENSE.txt",
+	"reportIssueUrl": "https://github.com/VELLORAAI/dragon-ide/issues/new",
+	"nodejsArtifactFeed": "",
+	"electronArtifactFeed": "",
+	"urlProtocol": "dragon-ide",
+	"webviewContentExternalBaseUrlTemplate": "https://{{uuid}}.vscode-cdn.net/insider/ef65ac1ba57f57f2a3961bfe94aa20481caca4c6/out/vs/workbench/contrib/webview/browser/pre/",
+	"builtInExtensions": [
+		{
+			"name": "ms-vscode.js-debug-companion",
+			"version": "1.1.3",
+			"sha256": "7380a890787452f14b2db7835dfa94de538caf358ebc263f9d46dd68ac52de93",
+			"repo": "https://github.com/microsoft/vscode-js-debug-companion",
+			"metadata": {
+				"id": "99cb0b7f-7354-4278-b8da-6cc79972169d",
+				"publisherId": {
+					"publisherId": "5f5636e7-69ed-4afe-b5d6-8d231fb3d3ee",
+					"publisherName": "ms-vscode",
+					"displayName": "Microsoft",
+					"flags": "verified"
+				},
+				"publisherDisplayName": "Microsoft"
+			}
+		},
+		{
+			"name": "ms-vscode.js-debug",
+			"version": "1.117.0",
+			"sha256": "854eeb8a785b1f41ba2bd02d7ccd4fdbe10021b61473293973c7e96d036c7fb8",
+			"repo": "https://github.com/microsoft/vscode-js-debug",
+			"metadata": {
+				"id": "25629058-ddac-4e17-abba-74678e126c5d",
+				"publisherId": {
+					"publisherId": "5f5636e7-69ed-4afe-b5d6-8d231fb3d3ee",
+					"publisherName": "ms-vscode",
+					"displayName": "Microsoft",
+					"flags": "verified"
+				},
+				"publisherDisplayName": "Microsoft"
+			}
+		},
+		{
+			"name": "ms-vscode.vscode-js-profile-table",
+			"version": "1.0.11",
+			"sha256": "a962a1e6a3baf74c9354b7f47fa96e6d6f0423a63bff55d7f976b6134a748ae9",
+			"repo": "https://github.com/microsoft/vscode-js-profile-visualizer",
+			"metadata": {
+				"id": "7e52b41b-71ad-457b-ab7e-0620f1fc4feb",
+				"publisherId": {
+					"publisherId": "5f5636e7-69ed-4afe-b5d6-8d231fb3d3ee",
+					"publisherName": "ms-vscode",
+					"displayName": "Microsoft",
+					"flags": "verified"
+				},
+				"publisherDisplayName": "Microsoft"
+			}
+		}
+	],
+	"trustedExtensionAuthAccess": {
+		"microsoft": [
+			"vscode.github-authentication"
+		]
+	},
+	"onboardingKeymaps": [
+		{
+			"id": "vscode",
+			"label": "VS Code",
+			"description": "Default keyboard mapping"
+		},
+		{
+			"id": "sublime",
+			"label": "Sublime Text",
+			"extensionId": "ms-vscode.sublime-keybindings",
+			"description": "Keyboard mapping from Sublime Text"
+		},
+		{
+			"id": "intellij",
+			"label": "IntelliJ / JetBrains",
+			"extensionId": "k--kato.intellij-idea-keybindings",
+			"description": "Keyboard mapping from IntelliJ IDEA"
+		},
+		{
+			"id": "vim",
+			"label": "Vim",
+			"extensionId": "vscodevim.vim",
+			"description": "Vim modal editing"
+		},
+		{
+			"id": "eclipse",
+			"label": "Eclipse",
+			"extensionId": "alphabotsec.vscode-eclipse-keybindings",
+			"description": "Keyboard mapping from Eclipse"
+		},
+		{
+			"id": "notepadpp",
+			"label": "Notepad++",
+			"extensionId": "ms-vscode.notepadplusplus-keybindings",
+			"description": "Keyboard mapping from Notepad++"
+		}
+	],
+	"onboardingThemes": [
+		{
+			"id": "freedom-orange",
+			"label": "Freedom Orange",
+			"themeId": "Freedom Orange",
+			"type": "dark"
+		},
+		{
+			"id": "hc-dark",
+			"label": "Dark High Contrast",
+			"themeId": "Default High Contrast",
+			"type": "hcDark"
+		},
+		{
+			"id": "solarized-dark",
+			"label": "Solarized Dark",
+			"themeId": "Solarized Dark",
+			"type": "dark"
+		},
+		{
+			"id": "light-2026",
+			"label": "Light 2026",
+			"themeId": "Light 2026",
+			"type": "light"
+		},
+		{
+			"id": "hc-light",
+			"label": "Light High Contrast",
+			"themeId": "Default High Contrast Light",
+			"type": "hcLight"
+		},
+		{
+			"id": "solarized-light",
+			"label": "Solarized Light",
+			"themeId": "Solarized Light",
+			"type": "light"
+		}
+	],
+	"builtInExtensionsEnabledWithAutoUpdates": [],
+	"sessionsWindowAllowedExtensions": [],
+	"extensionsGallery": {
+		"serviceUrl": "https://open-vsx.org/vscode/gallery",
+		"itemUrl": "https://open-vsx.org/vscode/item",
+		"extensionUrlTemplate": "https://open-vsx.org/vscode/gallery/{publisher}/{name}/latest",
+		"controlUrl": "",
+		"nlsBaseUrl": ""
+	}
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/package",
+  "name": "@opencode/script",
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "semver": "^7.6.3"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/semver": "^7.5.8"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -1,0 +1,217 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dragon-agent:
+    name: Dragon agent + OpenCode end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Branding gate
+        run: node scripts/dragon/check-branding.mts
+        env:
+          DRAGON_FORBIDDEN_NAMES: ${{ secrets.DRAGON_FORBIDDEN_NAMES }}
+      - name: Build the bundled OpenCode binary
+        run: node scripts/dragon/build-opencode.mts
+      - name: Install workspace tooling (TypeScript, @types/node)
+        run: npm ci --ignore-scripts
+      - name: Compile dragon-agent
+        run: npx tsc -p extensions/dragon-agent
+      - name: Unit + end-to-end tests (real OpenCode against a scripted Ollama)
+        run: npm --prefix extensions/dragon-agent test
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks on the commits in this change
+        run: |
+          curl -sSfL -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz
+          echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  gitleaks.tar.gz' | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks && rm gitleaks.tar.gz
+          base="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
+          ./gitleaks git --log-opts="$base..HEAD" --redact --no-banner
+
+  workbench:
+    name: Workbench type check + hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y libkrb5-dev libsecret-1-dev libxkbfile-dev
+      - name: npm ci
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+      - name: Type check
+        run: NODE_OPTIONS=--max-old-space-size=8192 npx tsc --project ./src/tsconfig.json --noEmit --skipLibCheck
+      - name: Layer check
+        run: npm run valid-layers-check
+      - name: Hygiene (files changed on this branch)
+        run: |
+          base="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
+          files=$(git diff --name-only --diff-filter=d "$base" -- src extensions build scripts '*.json' | grep -v '^opencode/' || true)
+          if [ -n "$files" ]; then node build/hygiene.ts $files; fi
+      - name: Compile
+        run: NODE_OPTIONS=--max-old-space-size=8192 npm run compile
+
+  unit-tests:
+    name: Unit tests (Node + Electron)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y libkrb5-dev libsecret-1-dev libxkbfile-dev xvfb libgbm1 libnss3 libasound2t64 libgtk-3-0 libxss1
+      - name: npm ci
+        run: npm ci
+      - name: Add swap (the build can outgrow the runner's memory)
+        run: |
+          # The runner's disk is small, so make room first. These preinstalled toolchains are not used here.
+          df -h / /mnt 2>/dev/null || true
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          # Put the swap file on the disk with more room, and leave 15 GB on it for the rest of the build.
+          file=/dragon.swap
+          avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
+          mnt=$(df --output=avail -BG /mnt 2>/dev/null | tail -1 | tr -dc 0-9)
+          if [ "$(df --output=source /mnt 2>/dev/null | tail -1)" != "$(df --output=source / | tail -1)" ] && [ "${mnt:-0}" -gt "${avail:-0}" ]; then file=/mnt/dragon.swap; avail=$mnt; fi
+          size=$(( ${avail:-0} - 15 )); if [ "$size" -gt 12 ]; then size=12; fi
+          if [ "$size" -ge 2 ]; then
+            { sudo fallocate -l "${size}G" "$file" && sudo chmod 600 "$file" && sudo mkswap "$file" >/dev/null && sudo swapon "$file"; } || echo "::warning::Could not add swap at $file"
+          else
+            echo "::warning::Only ${avail:-0} GB free on the disk; no swap added"
+          fi
+          df -h / /mnt 2>/dev/null || true
+          free -m
+      - name: Compile
+        run: |
+          ( while sleep 20; do echo "[memory] $(free -m | awk '/^Mem:/ {printf "used %d of %d MB", $3, $2} /^Swap:/ {printf "; swap %d of %d MB", $3, $2}'); disk free $(df -BG --output=avail . | tail -1 | tr -d ' ')"; done ) &
+          npm run compile
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+      - name: Node unit tests
+        run: npm run test-node
+      - name: Electron unit tests
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" ./scripts/test.sh --no-sandbox
+
+  package-linux:
+    name: Package + launch the Linux desktop app
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y libkrb5-dev libsecret-1-dev libxkbfile-dev xvfb imagemagick libgbm1 libnss3 libasound2t64 libgtk-3-0 libxss1
+      - name: npm ci
+        run: npm ci
+      - name: Bundle OpenCode
+        run: node scripts/dragon/build-opencode.mts
+      - name: Add swap (the build can outgrow the runner's memory)
+        run: |
+          # The runner's disk is small, so make room first. These preinstalled toolchains are not used here.
+          df -h / /mnt 2>/dev/null || true
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          # Put the swap file on the disk with more room, and leave 15 GB on it for the rest of the build.
+          file=/dragon.swap
+          avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
+          mnt=$(df --output=avail -BG /mnt 2>/dev/null | tail -1 | tr -dc 0-9)
+          if [ "$(df --output=source /mnt 2>/dev/null | tail -1)" != "$(df --output=source / | tail -1)" ] && [ "${mnt:-0}" -gt "${avail:-0}" ]; then file=/mnt/dragon.swap; avail=$mnt; fi
+          size=$(( ${avail:-0} - 15 )); if [ "$size" -gt 12 ]; then size=12; fi
+          if [ "$size" -ge 2 ]; then
+            { sudo fallocate -l "${size}G" "$file" && sudo chmod 600 "$file" && sudo mkswap "$file" >/dev/null && sudo swapon "$file"; } || echo "::warning::Could not add swap at $file"
+          else
+            echo "::warning::Only ${avail:-0} GB free on the disk; no swap added"
+          fi
+          df -h / /mnt 2>/dev/null || true
+          free -m
+      - name: Build Dragon IDE (linux-x64)
+        run: |
+          ( while sleep 20; do echo "[memory] $(free -m | awk '/^Mem:/ {printf "used %d of %d MB", $3, $2} /^Swap:/ {printf "; swap %d of %d MB", $3, $2}'); disk free $(df -BG --output=avail . | tail -1 | tr -d ' ')"; done ) &
+          npm run gulp vscode-linux-x64-min
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+      - name: Check the packaged app
+        run: |
+          app=../VSCode-linux-x64
+          test -x "$app/dragon-ide"
+          test -x "$app/resources/app/extensions/dragon-agent/bin/opencode"
+          test -f "$app/resources/app/extensions/dragon-agent/dist/extension.js"
+          test -f "$app/resources/app/extensions/dragon-agent/dist/opencodePlugin.js"
+          test ! -e "$app/resources/app/extensions/copilot"
+          node -e "const p=require('$app/resources/app/product.json'); if (p.nameLong !== 'Dragon IDE' || p.defaultChatAgent) { throw new Error('product.json is not Dragon IDE: ' + p.nameLong); }"
+          "$app/bin/dragon-ide" --version --no-sandbox --user-data-dir "$PWD/udd-version"
+      - name: Launch the app (splash, OpenCode server, dragon-agent)
+        run: |
+          app=$(realpath ../VSCode-linux-x64)
+          mkdir -p shots work && echo 'hello world' > work/hello.txt
+          cat > launch.sh <<'SH'
+          set -x
+          "$APP/dragon-ide" --no-sandbox --disable-workspace-trust --skip-release-notes --user-data-dir "$PWD/udd" --extensions-dir "$PWD/exts" "$PWD/work" > app.log 2>&1 &
+          pid=$!
+          sleep 2; import -window root shots/01-splash.png
+          sleep 40; import -window root shots/02-workbench.png
+          kill $pid || true
+          SH
+          APP="$app" xvfb-run -a -s "-screen 0 1440x900x24" bash launch.sh
+          echo '--- OpenCode log'; find udd/logs -name '*OpenCode*' -exec cat {} + || true
+          find udd/logs -name '*OpenCode*' -exec grep -l 'ready at http://127.0.0.1' {} + | grep -q . || { echo 'OpenCode server did not start inside the desktop app'; cat app.log; exit 1; }
+      - name: Onboarding smoke test (splash, trust, local model, @dragon turn)
+        run: xvfb-run -a -s "-screen 0 1440x900x24" node scripts/dragon/smoke-onboarding.mts --app ../VSCode-linux-x64 --out smoke
+      - name: Usage readout smoke test (model picker catches up, context, cache hit, prices)
+        run: xvfb-run -a -s "-screen 0 1440x900x24" node scripts/dragon/smoke-usage.mts --app ../VSCode-linux-x64 --out smoke-usage
+      - name: Permission modes smoke test (approvals, Deny, Ask plans, Read-Only, Full Access)
+        run: xvfb-run -a -s "-screen 0 1440x900x24" node scripts/dragon/smoke-modes.mts --app ../VSCode-linux-x64 --out smoke-modes
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dragon-ide-linux-x64-screenshots
+          path: |
+            shots/
+            smoke/
+            smoke-usage/
+            smoke-modes/
+      - name: Archive the build
+        run: tar -czf DragonIDE-linux-x64.tar.gz -C .. VSCode-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DragonIDE-linux-x64
+          path: DragonIDE-linux-x64.tar.gz
+          retention-days: 14

@@ -1,0 +1,200 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or commit to build (default the branch this run is on)
+        required: false
+        default: ''
+      targets:
+        description: Comma-separated targets to build (default all) from darwin-arm64, darwin-x64, linux-x64, windows-x64
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - id: pick
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          all='[
+            {"os":"macos-14","platform":"darwin","arch":"arm64","opencode":"darwin-arm64"},
+            {"os":"macos-15-intel","platform":"darwin","arch":"x64","opencode":"darwin-x64"},
+            {"os":"ubuntu-22.04","platform":"linux","arch":"x64","opencode":"linux-x64"},
+            {"os":"windows-2022","platform":"win32","arch":"x64","opencode":"windows-x64"}
+          ]'
+          include=$(jq -c --arg t "$TARGETS" 'if $t == "" then . else ($t | gsub(" "; "") | split(",")) as $want | map(select(.opencode as $o | $want | index($o))) end' <<<"$all")
+          if [ "$include" = "[]" ]; then echo "::error::No build target matches '$TARGETS'"; exit 1; fi
+          echo "include=$include" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: targets
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.targets.outputs.include) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Use this workflow's smoke tests (an older release ref may predate their fixes)
+        if: inputs.ref != ''
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.sha }}"
+          git checkout FETCH_HEAD -- scripts/dragon/smoke-onboarding.mts scripts/dragon/smoke-usage.mts scripts/dragon/smoke-modes.mts extensions/dragon-agent/src/test/mockOllama.ts
+          git status --short
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: System dependencies (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y libkrb5-dev libsecret-1-dev libxkbfile-dev fakeroot rpm xvfb libgbm1 libnss3 libasound2 libgtk-3-0 libxss1 clang-15
+          # GCC 11 on Ubuntu 22.04 cannot parse Electron 43's V8 headers. clang can, and it links the
+          # system libstdc++, so the native modules still load on 22.04.
+          echo "CC=clang-15" >> "$GITHUB_ENV"
+          echo "CXX=clang++-15" >> "$GITHUB_ENV"
+          clang++-15 --version | head -1
+      - name: Put signtool on PATH (Windows; the build strips signatures before editing resources)
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          $tool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $tool) { throw 'signtool.exe was not found in the Windows SDK' }
+          $tool.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "signtool: $($tool.FullName)"
+      - name: npm ci
+        run: npm ci
+      - name: Stamp the Dragon IDE version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          node -e "const fs = require('fs'); const p = JSON.parse(fs.readFileSync('product.json', 'utf8')); p.dragonVersion = process.env.GITHUB_REF_NAME.replace(/^v/, ''); fs.writeFileSync('product.json', JSON.stringify(p, null, '\t') + '\n');"
+          grep '"dragonVersion"' product.json
+      - name: Bundle OpenCode
+        run: node scripts/dragon/build-opencode.mts --target=${{ matrix.opencode }}
+      - name: Bundle Splash on supported targets
+        run: node scripts/dragon/bundle-splash.mts --target=${{ matrix.platform }}-${{ matrix.arch }}
+      - name: Collect third-party licenses
+        run: node scripts/dragon/collect-licenses.mts
+      - name: Add swap (Linux; the minified build can outgrow the runner's memory)
+        if: matrix.platform == 'linux'
+        run: |
+          # The runner's disk is small, so make room first. These preinstalled toolchains are not used here.
+          df -h / /mnt 2>/dev/null || true
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          # Put the swap file on the disk with more room, and leave 15 GB on it for the rest of the build.
+          file=/dragon.swap
+          avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
+          mnt=$(df --output=avail -BG /mnt 2>/dev/null | tail -1 | tr -dc 0-9)
+          if [ "$(df --output=source /mnt 2>/dev/null | tail -1)" != "$(df --output=source / | tail -1)" ] && [ "${mnt:-0}" -gt "${avail:-0}" ]; then file=/mnt/dragon.swap; avail=$mnt; fi
+          size=$(( ${avail:-0} - 15 )); if [ "$size" -gt 12 ]; then size=12; fi
+          if [ "$size" -ge 2 ]; then
+            { sudo fallocate -l "${size}G" "$file" && sudo chmod 600 "$file" && sudo mkswap "$file" >/dev/null && sudo swapon "$file"; } || echo "::warning::Could not add swap at $file"
+          else
+            echo "::warning::Only ${avail:-0} GB free on the disk; no swap added"
+          fi
+          df -h / /mnt 2>/dev/null || true
+          free -m
+      - name: Build Dragon IDE
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            ( while sleep 20; do echo "[memory] $(free -m | awk '/^Mem:/ {printf "used %d of %d MB", $3, $2} /^Swap:/ {printf "; swap %d of %d MB", $3, $2}'); disk free $(df -BG --output=avail . | tail -1 | tr -d ' ')"; done ) &
+          fi
+          npm run gulp vscode-${{ matrix.platform }}-${{ matrix.arch }}-min
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+          # The build downloads Electron and built-in extensions through GitHub's API. Without a token it gets
+          # 60 requests an hour per runner IP, and shared runners run out. Only the steps that download get it:
+          # the smoke tests pass their environment to the app, and OpenCode reads GITHUB_TOKEN.
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Audit packaged licenses and exclusions
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "darwin" ]; then
+            node scripts/dragon/audit-package.mts "../VSCode-darwin-${{ matrix.arch }}/Dragon IDE.app"
+          else
+            node scripts/dragon/audit-package.mts "../VSCode-${{ matrix.platform }}-${{ matrix.arch }}/resources/app"
+          fi
+      - name: Desktop smoke tests (onboarding, usage readout, permission modes) on the packaged app
+        shell: bash
+        run: |
+          case "${{ matrix.platform }}" in
+            darwin) app="../VSCode-darwin-${{ matrix.arch }}/Dragon IDE.app" ;;
+            *) app="../VSCode-${{ matrix.platform }}-${{ matrix.arch }}" ;;
+          esac
+          smoke() {
+            if [ "${{ matrix.platform }}" = "linux" ]; then xvfb-run -a -s "-screen 0 1440x900x24" node "$@"; else node "$@"; fi
+          }
+          smoke scripts/dragon/smoke-onboarding.mts --app "$app" --out smoke/onboarding
+          smoke scripts/dragon/smoke-usage.mts --app "$app" --out smoke/usage
+          smoke scripts/dragon/smoke-modes.mts --app "$app" --out smoke/modes
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.platform }}-${{ matrix.arch }}
+          path: smoke/
+      - name: Linux packages (deb, rpm)
+        if: matrix.platform == 'linux'
+        run: |
+          npm run gulp vscode-linux-${{ matrix.arch }}-prepare-deb
+          npm run gulp vscode-linux-${{ matrix.arch }}-build-deb
+          npm run gulp vscode-linux-${{ matrix.arch }}-prepare-rpm
+          npm run gulp vscode-linux-${{ matrix.arch }}-build-rpm
+        env:
+          # The dependency generator downloads the Debian sysroot through GitHub's API (see the build step).
+          GITHUB_TOKEN: ${{ github.token }}
+      # Code signing and notarization: add the Apple and Windows signing steps here once the
+      # certificates are configured as repository secrets.
+      - name: Package
+        shell: bash
+        run: |
+          cd ..
+          name="DragonIDE-${{ matrix.platform }}-${{ matrix.arch }}"
+          dir=$(ls -d VSCode-${{ matrix.platform }}-${{ matrix.arch }} 2>/dev/null || true)
+          if [ "${{ matrix.platform }}" = "win32" ]; then 7z a "$name.zip" "$dir" >/dev/null; else tar -czf "$name.tar.gz" "$dir"; fi
+          mkdir -p "$GITHUB_WORKSPACE/dist" && mv "$name".* "$GITHUB_WORKSPACE/dist/"
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            cp "$GITHUB_WORKSPACE"/.build/linux/deb/*/deb/*.deb "$GITHUB_WORKSPACE"/.build/linux/rpm/*/*.rpm "$GITHUB_WORKSPACE/dist/"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DragonIDE-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/*
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/releases
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          body_path: docs/releases/${{ github.ref_name }}.md
+          files: dist/*
