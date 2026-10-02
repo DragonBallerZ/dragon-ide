@@ -9,7 +9,8 @@
 //   2. one-button entry without credentials, including keyboard focus containment
 //   3. Connect AI inside the app, then the normal workspace trust dialog
 //   4. picking a local model in-app, which creates its agent variant (with a larger context window)
-//   5. a Dragon turn that reads and edits a file, with Dragon tool cards and the diff
+//   5. a Dragon turn that reads and edits a file, approving the edit when Dragon asks (the default
+//      permission mode asks first), with Dragon tool cards and the diff
 // Every step asserts on the app itself, and the file on disk and the requests the fake Ollama
 // received are checked too, so a turn answered by some other model cannot pass.
 // On a machine too small for the model (an 8 GB CI runner), step 4 checks that the app refuses it
@@ -246,6 +247,19 @@ try {
 			// key by key, so the completion widget cannot turn it into a slash command.
 			await win.keyboard.insertText('In hello.txt, change "hello world" to "hello dragon".');
 			await win.keyboard.press('Enter');
+			// The default permission mode asks before an edit. Approve it as a user would; a turn that edits
+			// without asking never shows this prompt and fails here.
+			const approval = await win.waitForSelector('.chat-question-carousel-container:has(.chat-question-submit-button)', { state: 'visible', timeout: STEP_TIMEOUT });
+			const asked = ((await approval.textContent()) ?? '').replace(/\s+/g, ' ');
+			if (!asked.includes('hello.txt')) {
+				throw new Error(`the approval prompt reads ${JSON.stringify(asked)}, not about hello.txt`);
+			}
+			// Picking an option answers a one-question prompt; Submit is only needed when it does not.
+			await (await approval.waitForSelector('.chat-question-list-item:has-text("Allow once")')).click();
+			const submit = await approval.$('.chat-question-submit-button');
+			if (await submit?.isVisible().catch(() => false)) {
+				await submit?.click({ timeout: 2000 }).catch(() => undefined);
+			}
 			const response = await win.waitForSelector('.interactive-item-container.interactive-response:not(.chat-response-loading):has(.rendered-markdown:has-text("to greet the dragon"))', { timeout: STEP_TIMEOUT });
 			const responder = (await response.$eval('.username', el => el.textContent).catch(() => null))?.trim();
 			if (responder !== 'Dragon') {
