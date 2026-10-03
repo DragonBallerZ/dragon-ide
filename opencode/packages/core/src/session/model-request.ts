@@ -11,6 +11,7 @@ import {
   Message,
   SystemPart,
 } from "@opencode/ai"
+import { BedrockConverse } from "@opencode/ai/protocols"
 import type { StreamOptions } from "@opencode/ai/route"
 import type {
   SessionCompaction,
@@ -44,6 +45,17 @@ const IMAGE_BYTES_TARGET = 15 * 1024 * 1024 // 15 MiB
 const IMAGE_REMOVED =
   "[This image was removed to reduce the request size and is no longer visible. Do not make claims about its contents from memory. If needed, retrieve it again with an available tool or ask the user to attach it again.]"
 const GENERATION_KEYS = new Set(Object.keys(GenerationOptions.fields))
+// DRAGON: when a request names no output limit, Bedrock's Converse API stops Claude at 4,096 tokens, which cuts a
+// long file off in the middle of a write. Claude there gets its own limit instead, at most 32,000 like the Anthropic
+// route's default. Other Bedrock models keep Bedrock's defaults.
+const BEDROCK_CLAUDE_OUTPUT_TOKEN_MAX = 32_000
+const withOutputLimit = (generation: GenerationOptionsFields, model: SessionRunnerModel.Resolved) =>
+  generation.maxTokens !== undefined ||
+  model.model.route.protocol !== BedrockConverse.protocol.id ||
+  !model.model.id.includes("anthropic") ||
+  !(model.limit.output > 0)
+    ? generation
+    : { ...generation, maxTokens: Math.min(model.limit.output, BEDROCK_CLAUDE_OUTPUT_TOKEN_MAX) }
 
 /** Tool errors, plus the user declining a permission or dismissing a question. */
 export type ExecuteError = Tool.Error | Permission.DeclinedError | QuestionTool.CancelledError
@@ -232,7 +244,10 @@ export const layer = Layer.effect(
         }),
       )
       const entries = Object.entries(shaped.options)
-      const generation = Object.fromEntries(entries.filter(([k]) => GENERATION_KEYS.has(k))) as GenerationOptionsFields
+      const generation = withOutputLimit(
+        Object.fromEntries(entries.filter(([k]) => GENERATION_KEYS.has(k))) as GenerationOptionsFields,
+        model,
+      )
       const providerOptions = Object.fromEntries(entries.filter(([k]) => !GENERATION_KEYS.has(k)))
       const affinity = session.parentID ?? session.fork?.sessionID ?? session.id
       const base = LLM.request({
