@@ -2,7 +2,7 @@
 
 **An open-source AI code editor that runs on your terms.**
 
-Dragon IDE is VS Code with [OpenCode](https://github.com/sst/opencode) built in as its AI agent. Use a local model through [Ollama](https://ollama.com) and nothing leaves your machine, or bring your own key for Anthropic, OpenAI, Google, OpenRouter and more. No account, no subscription, no telemetry.
+Dragon IDE is built on Code - OSS, the open-source core of VS Code, with [OpenCode](https://github.com/sst/opencode) built in as its AI agent. Use a local model through [Ollama](https://ollama.com) and nothing leaves your machine, or bring your own key for Anthropic, OpenAI, Google, OpenRouter and more. No account, no subscription, no telemetry.
 
 <p align="center">
   <img alt="The Dragon IDE entrance: the dragon mark, the Dragon IDE heading and one Enter FREEDOM AI button, with no account needed" src="docs/images/login.png" width="760">
@@ -82,3 +82,12 @@ Planned work is in [`todo.md`](todo.md). The big one is running several agents s
 [MIT](LICENSE.txt). VS Code and OpenCode are MIT-licensed too; their notices, and those of DeepSeek Harness (MIT, used for the usage readout), are in [`ThirdPartyNotices.txt`](ThirdPartyNotices.txt).
 
 Dragon IDE is an independent project, not affiliated with or endorsed by Microsoft, the OpenCode authors, Ollama or DeepSeek. The Dragon IDE name and logo are not free to reuse. The heading font is Almendra (SIL Open Font License 1.1); all other artwork is original to this repository.
+
+## Disclaimer
+
+Dragon IDE is provided "as is", without warranty of any kind, as the [MIT License](LICENSE.txt) says. You use it at your own risk.
+
+- The agent can read, edit and delete files and run commands on your computer. What it does depends on the model and on what you allow, so review its changes, keep backups, and use **Read-Only** or **Ask first** when it matters.
+- Models make mistakes. Check what they write before you rely on it.
+- A cloud provider receives your prompts and code and may charge for them. Its terms and bills are between you and that provider.
+- You are responsible for how you use Dragon IDE and for what you do with it. To the fullest extent the law allows, the authors and contributors are not liable for any claim, loss or damage arising from Dragon IDE or from anything anyone does with it, including lost data or work, provider charges and harm to systems.
