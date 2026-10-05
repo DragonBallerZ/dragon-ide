@@ -353,7 +353,8 @@ try {
 			return JSON.stringify(last?.body ?? '').split('but it was not woken: the user stopped it').length - 1;
 		};
 		const before = told();
-		// A turn that has only just ended still counts as in progress for a moment, and the app then asks before reloading.
+		// A chat whose command was cancelled (the Stop step) counts as in progress for some seconds more, with or
+		// without agent messaging, and the app then asks before reloading. Give it time to settle.
 		await win.waitForTimeout(3000);
 		// Wait for the new page: the old one still shows the team until it goes.
 		const loaded = win.waitForEvent('load', { timeout: STEP_TIMEOUT });
