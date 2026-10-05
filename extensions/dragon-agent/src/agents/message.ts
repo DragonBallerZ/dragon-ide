@@ -11,7 +11,7 @@ export const METADATA_SOURCE = 'dragon.agent';
 /** Wraps a message for the recipient's model. The sender attributes come from the hub, never from the model. */
 export function wrapMessage(sender: { readonly id: string; readonly name: string }, body: string): string {
 	// A body that contains the wrapper's own tags could pass itself off as a message from another agent.
-	const safe = body.replace(/<(?<slash>\/?)agent-message/gi, '<$<slash>agent-message​');
+	const safe = body.replace(/<(?<slash>\/?)agent-message/gi, '<$<slash>agent-message\u200b');
 	return `<agent-message from="${sender.name}" session="${sender.id}">\n${safe}\n</agent-message>`;
 }
 
