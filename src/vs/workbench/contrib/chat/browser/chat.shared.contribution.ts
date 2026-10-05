@@ -118,6 +118,7 @@ import { ChatGettingStartedContribution } from './actions/chatGettingStarted.js'
 import { registerChatExportActions } from './actions/chatImportExport.js';
 import { registerLanguageModelActions } from './actions/chatLanguageModelActions.js';
 import { registerMoveActions } from './actions/chatMoveActions.js';
+import { registerDragonAgentActions } from './actions/dragonAgentActions.js'; // DRAGON
 import { registerNewChatActions } from './actions/chatNewActions.js';
 import { registerChatOpenAgentDebugPanelAction } from './actions/chatOpenAgentDebugPanelAction.js';
 import { registerChatPluginActions } from './actions/chatPluginActions.js';
@@ -3349,6 +3350,7 @@ registerChatQueueActions();
 registerQuickChatActions();
 registerChatExportActions();
 registerMoveActions();
+registerDragonAgentActions(); // DRAGON
 registerNewChatActions();
 registerChatContextActions();
 registerChatDeveloperActions();

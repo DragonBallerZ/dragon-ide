@@ -13,6 +13,7 @@ run({
 	entryPoints: {
 		'extension': path.join(srcDir, 'extension.ts'),
 		'opencodePlugin': path.join(srcDir, 'search', 'opencodePlugin.ts'),
+		'agentsPlugin': path.join(srcDir, 'agents', 'opencodePlugin.ts'),
 	},
 	srcDir,
 	outdir: outDir,

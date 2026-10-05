@@ -57,6 +57,10 @@
 .dragon-permission-ask { color: #ffd166; }
 .dragon-permission-full { color: #ff6b6b; }
 
+/* Messages between agents: off is as quiet as the directory chip, on and muted stand out. */
+.dragon-messaging-on { color: #6cb6ff; }
+.dragon-messaging-muted { color: #ffd166; }
+
 /* Usage readout (context ring, cache hit, price). Ring and pills adapted from DeepSeek Harness's */
 /* ContextMeter and StatsPills (MIT); colors come from the theme. */
 .dragon-usage {

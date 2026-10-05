@@ -5,6 +5,7 @@
 
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { DragonAgents } from './agents/agents';
 import { DragonChat, moveSession } from './chat/participant';
 import { existsSync, statSync } from 'node:fs';
 import { buildDragonConfig, writeDragonConfig, writeSearchPlugin } from './dragonConfig';
@@ -43,9 +44,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	}
 	log.info(`[instant-grep] ${instantGrep() ? `enabled (ripgrep: ${rgPath})` : `disabled${!rgPath ? ': ripgrep not found' : !compiledPlugin ? ': plugin not built' : ''}`}`);
 
+	// Agent messaging: the tools agents use to find, message and spawn each other, as a second plugin.
+	const compiledAgentsPlugin = newest([path.join(context.extensionPath, 'dist', 'agentsPlugin.js'), path.join(context.extensionPath, 'out', 'agents', 'opencodePlugin.js')]);
+	const agentsPluginDir = path.join(context.globalStorageUri.fsPath, 'opencode', 'agents');
+	if (compiledAgentsPlugin) {
+		await writeSearchPlugin(agentsPluginDir, compiledAgentsPlugin, 'agent messaging');
+	}
+
 	const syncConfig = async () => {
 		const model = vscode.workspace.getConfiguration('dragon').get<string>('model')?.trim() || undefined;
-		const config = buildDragonConfig({ model, ollamaOrigin: ollamaOrigin(), ollamaModels: ollama.status.models, splashModels: splash.models, searchPluginDir: instantGrep() ? searchPluginDir : undefined });
+		const config = buildDragonConfig({ model, ollamaOrigin: ollamaOrigin(), ollamaModels: ollama.status.models, splashModels: splash.models, searchPluginDir: instantGrep() ? searchPluginDir : undefined, agentsPluginDir: compiledAgentsPlugin ? agentsPluginDir : undefined });
 		if (await writeDragonConfig(configFile, config)) {
 			log.info(`[config] wrote ${configFile}`);
 		}
@@ -70,6 +78,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			...(rgPath ? { DRAGON_RG_PATH: rgPath } : {}),
 			DRAGON_SEARCH_STORAGE: path.join(context.globalStorageUri.fsPath, 'instant-grep'),
 			DRAGON_SEMANTIC_CONFIG: semanticConfigFile,
+			DRAGON_AGENTS_HUB: agentsHubFile(context),
 		},
 		log: line => log.info(line),
 	});
@@ -92,6 +101,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}
 		return usage.summary({ sessionID, model }).catch(() => undefined);
 	}));
+	const agents = new DragonAgents(server, bridge, chat, context, log, agentsHubFile(context));
+	context.subscriptions.push(agents);
+	// Without the hub, agents are simply not offered the messaging tools; the rest of the IDE works.
+	await agents.start().catch(err => log.error(`[agents] the agent hub could not start: ${err instanceof Error ? err.message : String(err)}`));
 	const tui = new OpenCodeTui(server, context.extensionPath, directory);
 	const onboarding = new Onboarding(server, ollama, directory, log, splash);
 	const semanticSetup = new SemanticSetup(context, ollama, semanticModel, () => instantGrep(), chat.onDidCompleteTurn);
@@ -169,6 +182,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	updates.start();
 	// Start eagerly so the first message does not wait for the server.
 	void server.ensure().then(() => bridge.start()).catch(err => log.error(`[server] ${err instanceof Error ? err.message : String(err)}`));
+}
+
+/** Where this window's agent hub writes its address, for the OpenCode plugin to read. */
+function agentsHubFile(context: vscode.ExtensionContext): string {
+	return path.join(context.globalStorageUri.fsPath, 'opencode', `agents-hub-${process.pid}.json`);
 }
 
 /**

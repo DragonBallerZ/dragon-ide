@@ -88,15 +88,26 @@ test before building on it.
 
 ### Phase 3: agents message each other; teams (3–4 days)
 
-- [ ] Plugin tools: `list_agents`, `send_message` (durable, deduplicated, size and wake limits),
-  `wait_agent`. Messaging is opt-in per agent (a composer chip).
-- [ ] Incoming messages render as a distinct "From <agent>" turn in the recipient's editor, never as user input.
+Built on 2026-10-05, ahead of Phases 0–2, on plain chat editors (see `extensions/dragon-agent/SPEC.md`,
+"Agent messaging and teams").
+
+- [x] Plugin tools: `list_agents`, `send_message` (durable, deduplicated, size and wake limits),
+  `wait_agent`. Messaging is opt-in per agent (the Messages chip in the composer).
+- [x] Incoming messages render as a distinct "From <agent>" turn in the recipient's editor, never as user input.
   Stopped or muted agents do not wake.
-- [ ] **Dragon: New Team**: a lead chat plus N teammate editors in a grid preset. The lead delegates through
-  `spawn_teammate` and the task tools, and teammates open as panes. The permission ceiling is inherited and
-  loop limits are enforced.
-- [ ] Safety rules: host-validated sender identity, persisted
+- [x] **Dragon: New Team**: a lead chat plus N teammate panes in a grid preset. The lead delegates through
+  `spawn_teammate`, and teammates open as panes. The permission ceiling is inherited and loop limits are
+  enforced.
+- [x] Safety rules: host-validated sender identity, persisted
   stop-before-interrupt, and read-only agents stay read-only.
+
+Left for later:
+
+- [ ] A shared task list for a team ("the task tools"): the lead delegates with `spawn_teammate` and messages only.
+- [ ] An agent whose chat is not loaded works without a transcript in the chat view (it is in OpenCode and
+  the TUI). Phase 2's session provider would show it.
+- [ ] An automated test of approvals for an agent working outside a chat turn (the notification path).
+- [ ] A test of a window reload in the middle of a team's work.
 
 ### Decisions for the owner
 

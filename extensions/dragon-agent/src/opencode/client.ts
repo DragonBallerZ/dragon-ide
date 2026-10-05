@@ -167,6 +167,16 @@ export class OpenCodeClient {
 		});
 	}
 
+	/**
+	 * Adds a message that is not the user's (for example one agent's message to another) to the
+	 * session's inbox. It is stored durably; with `resume: false` the session is not woken for it.
+	 */
+	synthetic(sessionID: string, input: { text: string; description?: string; metadata?: Record<string, unknown>; resume?: boolean }) {
+		return this.request<{ data: { id: string } }>('POST', `/api/session/${encodeURIComponent(sessionID)}/synthetic`, {
+			body: { text: input.text, ...(input.description ? { description: input.description } : {}), ...(input.metadata ? { metadata: input.metadata } : {}), ...(input.resume === false ? { resume: false } : {}) },
+		});
+	}
+
 	interrupt(sessionID: string) {
 		return this.request<{ interrupted: boolean }>('POST', `/api/session/${encodeURIComponent(sessionID)}/interrupt`);
 	}

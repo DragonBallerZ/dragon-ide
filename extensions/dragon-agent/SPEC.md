@@ -210,7 +210,24 @@ The three commands that set a model resolve only once OpenCode lists it (at most
 - Reads are cached per session and refreshed after `session.usage.updated`, `session.execution.*`, `session.compaction.ended` or a model switch for that session (one `GET /api/event` stream, reconnected with backoff); the model catalog is cached for 60 s.
 - The extension loads the newest build of the Instant Grep plugin (`dist/` or `tsc` output), so a stale development bundle cannot shadow a fix.
 
+**Agent messaging and teams** (`src/agents/`). Agents are OpenCode sessions shown in chats; they find, message, wait for and spawn each other through four OpenCode tools.
+- **Parts.** `opencodePlugin.ts` (plugin `dragon.agents`, loaded from the config layer's `plugins`) adds the tools and forwards every call to the **agent hub** (`hub.ts`), a token-protected HTTP endpoint on `127.0.0.1` inside the extension host. The hub's address and token are in a file readable only by the user, named by `DRAGON_AGENTS_HUB` and read on every call. `agents.ts` connects the hub to the chats. The hub has no VS Code types and is tested directly.
+- **Tools.** `list_agents()`; `send_message({to, message})`; `wait_agent({agent, timeoutSeconds?})` (default 120 s, at most 600 s; returns the status and the last reply); `spawn_teammate({name, prompt, agent?})`. The sender is the session OpenCode ran the tool in (`context.sessionID`), never an argument.
+- **Opt-in.** Each agent has a messaging mode: `off` (default; the tools are removed from its requests by the plugin's `context` hook, and the hub refuses its calls), `on`, or `muted` (receives, is never woken). The composer's Messages chip cycles it (`dragon.agents.cycleMessaging`, `dragon.agents.messagingState`, both `{sessionResource}` → `{mode, name?, role?, team?}`). Subagent sessions are never registered, so they never have the tools.
+- **Delivery.** A message is admitted to the recipient's OpenCode inbox with `POST /api/session/{id}/synthetic` as `<agent-message from="NAME" session="ID">…</agent-message>` with metadata `{source: 'dragon.agent', from, fromName}`; a body containing the wrapper's tag is neutralized. An idle agent whose chat is loaded gets it as a system-initiated chat turn (`_dragon.chat.sendSystemRequest`): the request row shows **From NAME** and the quoted message in place of a typed message. A busy agent gets it at its next step, and its running turn shows it as a quote. An agent with no loaded chat is woken without one.
+- **Limits.** 16,000 characters per message; an identical message between the same two agents within 60 s is not delivered again; an agent is woken by other agents at most `dragon.agents.maxWakes` (25) times until a person messages it or its team's lead. Muted, stopped and over-limit agents get the message with `resume: false`, and the sender is told it was not woken.
+- **Stop.** Cancelling a turn writes `stopped` to the hub's registry before it calls OpenCode's interrupt. A stopped agent stays stopped until the user's next message to it. **Dragon: Stop All Agents** (`dragon.agents.stopAll`) does this for every working agent.
+- **Teams.** **Dragon: New Team** (`dragon.newTeam`) asks for a pane count (2, 3, 4 or 6) and a name, lays the editor area out as the lead on the left and a grid of panes on the right, opens the lead's chat with messaging on, and leaves a note in its inbox saying it leads the team. Only the lead may call `spawn_teammate` (at most `dragon.agents.maxTeammates`, 16). A teammate is a new OpenCode session with the lead's directory and model; it opens in the next pane (panes are shared as tabs after that) and its task arrives as a message from the lead. A read-only lead's teammates run the `plan` agent with the Read-Only rules.
+- **Approvals outside a chat turn.** A permission request from an agent no chat turn is showing is answered by the permission mode: Full Access allows once, Read-Only (or a read-only agent) rejects, Ask shows a notification (**Allow Once**, **Deny**, **Show Agent**). Its forms are cancelled.
+- **State.** The registry (agents, teams, the deduplication ledger) is `agents.json` in the workspace's storage, written atomically with mode 0600.
+- **Workbench commands** (`src/vs/workbench/contrib/chat/browser/actions/dragonAgentActions.ts`): `_dragon.chat.sendSystemRequest({sessionResource, message, label, agentId?})` → whether the chat took it; `_dragon.chat.openAgentEditor({title?, toSide?, group?, preserveFocus?})` → the new chat's session resource; `_dragon.chat.reveal(sessionResource)`.
+
 ## Behavior & Invariants
+
+- An agent cannot speak as another: the sender of a message is the session OpenCode ran the tool in.
+- A message from an agent never shows as something the user typed.
+- An agent the user stopped or muted is not woken by another agent.
+- A teammate never has more permissions than its lead had when it was spawned.
 
 - The extension never runs an agent loop, calls a model directly, or executes tools itself.
 - One server per window. The chat and the TUI share it, and so share sessions and credentials.
@@ -227,6 +244,9 @@ The three commands that set a model resolve only once OpenCode lists it (at most
 | A patch does not reverse cleanly | The file is listed without a diff instead of with a wrong one |
 | The user cancels | `POST /session/{id}/interrupt`; open tool cards are marked complete |
 | The server crashes | Restart with backoff (1 s, doubling, up to 30 s) |
+| The agent hub cannot start, or its address file is missing | The messaging tools are not offered to any agent; chats work as before |
+| A message cannot be put in the recipient's inbox | `send_message` fails for the sender, and the message is not counted as delivered, so it can be sent again |
+| The recipient's chat does not start the turn within 10 s | The message goes to OpenCode without the chat |
 
 ## Tests
 
@@ -234,6 +254,8 @@ The three commands that set a model resolve only once OpenCode lists it (at most
 - `src/test/e2e.test.ts`: the real OpenCode binary against a scripted Ollama. A permission test runs each rule set: the build agent asks before each command and edit and runs them once allowed, a denied command interrupts the turn, the plan agent asks before a command and cannot edit, Read-Only runs nothing and offers no shell or edit tool even after an "Always allow", and a subagent's request reaches the parent chat. A second end-to-end test runs an inline edit in a real plan session: the reply comes back, and the session is gone from the list afterwards. The first test uses an agent-variant model, and checks that OpenCode applies its 32k window over the 131k maximum Ollama reports. It then runs Instant Grep, `codebase_search` and an edit, and checks the answer, the diff metadata, the file on disk, the session list, the saved vectors, and that the embedding model is not offered for chat.
 - `src/test/search.test.ts` and `src/test/semantic.test.ts`: see the Instant Grep spec.
 - `src/test/usage.test.ts`: the cache-hit rounding cases from DeepSeek Harness, token and money formats, caching, OpenAI-style, uncached, local and free providers, tiered prices, compaction, and the service's per-session cache and invalidation. `src/test/usage.e2e.test.ts` (real OpenCode): an OpenAI-compatible provider with prices in the config layer reports 10,000 prompt tokens with 8,000 cached; the readout shows `80% cache hit`, the context and `$3 / $15 per 1M`, and OpenCode's recorded cost matches the prices. `src/test/sessionBridge.test.ts`: the event stream's fan-out, reconnect and isolation of a failing subscriber.
+- `src/test/agents.test.ts`: the hub's rules (sender, opt-in, size, duplicates, the wake limit), muted and stopped agents and that Stop is on disk before it returns, teams (only the lead spawns, the read-only ceiling, the size cap), `wait_agent`, the endpoint's token, a failed delivery, and a forged wrapper. Each rule was checked by removing it and seeing a test fail (16 of 16). `src/test/agents.e2e.test.ts` (real OpenCode): two agents message each other and wait, an agent with messaging off is not offered the tools, a stopped agent is not woken, and a read-only lead spawns a read-only teammate that reports back.
+- `npm run dragon:smoke-agents` (repository root): the desktop app, New Team through to a stopped teammate that is not woken. Removing the stop-before-interrupt call makes it fail.
 - Run with `npm --prefix extensions/dragon-agent test`. Set `DRAGON_OPENCODE_BIN` to point at a binary other than `bin/opencode`.
 
 ## Risks
@@ -242,6 +264,8 @@ The three commands that set a model resolve only once OpenCode lists it (at most
 - VS Code's proposed chat APIs can change. They are compiled against `src/vscode-dts/vscode.proposed.*` at every upstream sync.
 
 ## Changelog
+
+- 0.9.0 (2026-10-05): agents message each other (`list_agents`, `send_message`, `wait_agent`), opt-in per chat with the Messages chip; teams (**Dragon: New Team**, `spawn_teammate`); **Dragon: Stop All Agents**.
 
 - 0.8.2 (2026-10-02): permission modes that hold. Allow in the approval prompt allowed nothing (the answer is a `{selectedValue}` object); Ask permission mode never asked; Ask mode and Read-Only could run commands; subagent requests were dropped. Ask is in the mode picker, and denied calls read as skipped.
 

@@ -4,10 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/composerChips.css';
-import { addDisposableListener, EventType, h, reset } from '../../../../base/browser/dom.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { addDisposableListener, EventType, getActiveWindow, h, reset } from '../../../../base/browser/dom.js';
+import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { basename } from '../../../../base/common/path.js';
 import { basename as resourceBasename } from '../../../../base/common/resources.js';
+import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -136,5 +137,121 @@ export class DragonDirectoryToggle extends Disposable {
 		this.domNode.title = where
 			? localize('dragon.directory.tooltip', "OpenCode works in {0}. Click to choose another directory for new sessions.", where)
 			: localize('dragon.directory.tooltipNone', "No folder is open, so OpenCode works in your home directory. Click to choose a project directory.");
+	}
+}
+
+/**
+ * Whether this chat's agent may exchange messages with the window's other agents, as the
+ * dragon-agent extension reports it:
+ *   off   - it cannot send or receive, and other agents do not see it (default)
+ *   on    - it can message other agents, and their messages start a turn here
+ *   muted - messages for it are kept, but never start a turn
+ */
+export type DragonMessagingMode = 'off' | 'on' | 'muted';
+
+/** The messaging state of one chat, from the dragon-agent extension. */
+export interface DragonMessagingState {
+	readonly mode: DragonMessagingMode;
+	/** The name other agents use for this agent, once it has one. */
+	readonly name?: string;
+	/** `lead` or `teammate`, with the team's name, when the agent is on a team. */
+	readonly role?: string;
+	readonly team?: string;
+}
+
+export const DRAGON_MESSAGING_STATE_COMMAND = 'dragon.agents.messagingState';
+export const DRAGON_MESSAGING_CYCLE_COMMAND = 'dragon.agents.cycleMessaging';
+const MESSAGING_REFRESH_MS = 3000;
+
+const MESSAGING_LABELS: Record<DragonMessagingMode, string> = {
+	'off': localize('dragon.messaging.off', "Messages Off"),
+	'on': localize('dragon.messaging.on', "Messages On"),
+	'muted': localize('dragon.messaging.muted', "Messages Muted"),
+};
+
+const MESSAGING_GLYPHS: Record<DragonMessagingMode, string> = {
+	'off': '\u2715',
+	'on': '\u21C4',
+	'muted': '\u2016',
+};
+
+const MESSAGING_TOOLTIPS: Record<DragonMessagingMode, string> = {
+	'off': localize('dragon.messaging.off.tooltip', "Messages Off: this agent cannot message other agents, and they do not see it. Click to turn messages on."),
+	'on': localize('dragon.messaging.on.tooltip', "Messages On: this agent can message the other agents in this window that have messages on, and a message from one of them starts a turn here. Click to mute."),
+	'muted': localize('dragon.messaging.muted.tooltip', "Messages Muted: messages from other agents are kept for this agent but do not start a turn. Click to turn messages off."),
+};
+
+/** Where the messaging chip finds the chat it belongs to. */
+export interface DragonMessagingSource {
+	sessionResource(): URI | undefined;
+}
+
+/** The composer chip that turns messages between agents on, mutes them, or turns them off for this chat. */
+export class DragonMessagingToggle extends Disposable {
+	readonly domNode: HTMLButtonElement;
+	private readonly glyph: HTMLElement;
+	private readonly label: HTMLElement;
+	private generation = 0;
+
+	constructor(
+		container: HTMLElement,
+		private readonly source: DragonMessagingSource,
+		@ICommandService private readonly commandService: ICommandService,
+	) {
+		super();
+		const layout = h('button.dragon-chip.dragon-messaging-toggle@root', [
+			h('span.dragon-chip-glyph@glyph'),
+			h('span.dragon-chip-label@label'),
+		]);
+		this.domNode = layout.root as HTMLButtonElement;
+		this.domNode.type = 'button';
+		this.glyph = layout.glyph;
+		this.label = layout.label;
+
+		this._register(addDisposableListener(this.domNode, EventType.CLICK, e => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.request(DRAGON_MESSAGING_CYCLE_COMMAND);
+		}));
+		container.appendChild(this.domNode);
+		this.render(undefined);
+		// The state also changes from outside the chip: a new team, or a teammate the lead spawned.
+		const timer = getActiveWindow().setInterval(() => this.refresh(), MESSAGING_REFRESH_MS);
+		this._register(toDisposable(() => getActiveWindow().clearInterval(timer)));
+		this.refresh();
+	}
+
+	/** Reads the state again; called on a timer and when the chat changes. */
+	refresh(): void {
+		if (this.domNode.isConnected && getActiveWindow().document.visibilityState !== 'hidden') {
+			this.request(DRAGON_MESSAGING_STATE_COMMAND);
+		}
+	}
+
+	private request(command: string): void {
+		const sessionResource = this.source.sessionResource()?.toString();
+		const generation = ++this.generation;
+		const show = (state: DragonMessagingState | undefined) => {
+			if (generation === this.generation && !this._store.isDisposed) {
+				this.render(state);
+			}
+		};
+		this.commandService.executeCommand<DragonMessagingState | undefined>(command, { sessionResource }).then(show, () => show(undefined));
+	}
+
+	private render(state: DragonMessagingState | undefined): void {
+		const mode: DragonMessagingMode = state?.mode === 'on' || state?.mode === 'muted' ? state.mode : 'off';
+		this.domNode.classList.remove('dragon-messaging-off', 'dragon-messaging-on', 'dragon-messaging-muted');
+		this.domNode.classList.add(`dragon-messaging-${mode}`);
+		reset(this.glyph, MESSAGING_GLYPHS[mode]);
+		// With messages on, the chip shows the name other agents call this one.
+		reset(this.label, mode !== 'off' && state?.name ? state.name : MESSAGING_LABELS[mode]);
+		const identity = state?.name && mode !== 'off'
+			? state.team && state.role
+				? localize('dragon.messaging.identityTeam', "Other agents know this agent as \"{0}\" ({1} of team \"{2}\").", state.name, state.role, state.team)
+				: localize('dragon.messaging.identity', "Other agents know this agent as \"{0}\".", state.name)
+			: undefined;
+		this.domNode.title = identity ? `${MESSAGING_TOOLTIPS[mode]}\n${identity}` : MESSAGING_TOOLTIPS[mode];
+		this.domNode.setAttribute('aria-label', localize('dragon.messaging.aria', "Dragon agent messages: {0}. Click to cycle.", MESSAGING_LABELS[mode]));
 	}
 }

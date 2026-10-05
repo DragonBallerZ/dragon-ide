@@ -13,6 +13,7 @@ import { DRAGON_VENDOR } from '../models';
 import { buildInlinePrompt, extractCode, reindent, runInlineEdit } from './inline';
 import { answerValue, describePermission, permissionDecision, presentTool, skippedMessage } from './toolPresentation';
 import { ChangedFile, reversePatch, TurnOp, TurnReducer } from './turn';
+import type { AgentHub, MessagingMode } from '../agents/hub';
 
 /** Chat modes the composer offers, and the OpenCode primary agent each one runs. */
 export const MODE_AGENTS = {
@@ -24,13 +25,29 @@ export type ChatModeId = keyof typeof MODE_AGENTS;
 
 export const ORIGINAL_SCHEME = 'dragon-original';
 
-interface SessionRecord {
+export interface SessionRecord {
 	readonly id: string;
 	readonly directory: string;
 	model?: string;
 	agent?: string;
 	/** Whether the session has the Read-Only rules; unknown for a session this chat did not create. */
 	readOnly?: boolean;
+	/** The session was made before the chat's first message (a team's lead or a teammate), so an empty chat keeps it. */
+	bound?: boolean;
+}
+
+/** A message from another agent, as the chat shows it. */
+export interface AgentMessage {
+	readonly from: string;
+	readonly text: string;
+}
+
+/** A message from another agent that is waiting for its chat to start the turn that delivers it. */
+export interface PendingDelivery {
+	/** Settles when the message is in the agent's inbox, or could not be put there. */
+	readonly sent: Promise<void>;
+	/** Takes the message back. False when the chat already has it. */
+	cancel(): boolean;
 }
 
 /**
@@ -46,6 +63,14 @@ export class DragonChat implements vscode.Disposable {
 	private readonly turnCompleted = new vscode.EventEmitter<void>();
 	/** Fires after an agent turn finishes successfully. */
 	readonly onDidCompleteTurn = this.turnCompleted.event;
+	/** The agent hub, once messaging is set up. Agents register with it and it is told about stops. */
+	hub: AgentHub | undefined;
+	/** Sessions with a chat turn running, which shows their events and answers their permission requests. */
+	private readonly activeTurns = new Map<string, number>();
+	/** Messages from other agents, by chat, each waiting for the turn that delivers it. */
+	private readonly deliveries = new Map<string, { message: AgentMessage; send: () => Promise<unknown>; settle: (err?: unknown) => void }[]>();
+	/** Messaging modes chosen with the composer chip before the chat had a session. */
+	private readonly pendingMessaging = new Map<string, MessagingMode>();
 
 	constructor(
 		private readonly server: OpenCodeServer,
@@ -96,6 +121,69 @@ export class DragonChat implements vscode.Disposable {
 			delete all[key];
 		}
 		await this.context.workspaceState.update('dragon.sessions', all);
+	}
+
+	/** The chat (by session resource) showing this OpenCode session, if one does. */
+	chatFor(sessionID: string): string | undefined {
+		const all = this.context.workspaceState.get<Record<string, SessionRecord>>('dragon.sessions', {});
+		return Object.keys(all).find(key => all[key].id === sessionID);
+	}
+
+	/** The OpenCode session record of a chat. */
+	recordFor(sessionResource: string): SessionRecord | undefined {
+		return this.getSession(sessionResource);
+	}
+
+	/** Ties a chat that has no messages yet to an OpenCode session made for it. */
+	bindSession(sessionResource: string, record: SessionRecord): Promise<void> {
+		return this.setSession(sessionResource, { ...record, bound: true });
+	}
+
+	/** Whether a chat turn is running for this session. */
+	isActive(sessionID: string): boolean {
+		return this.activeTurns.has(sessionID);
+	}
+
+	/** The session's subagent sessions seen so far. */
+	childrenOf(sessionID: string): Set<string> {
+		let children = this.children.get(sessionID);
+		if (!children) {
+			children = new Set();
+			this.children.set(sessionID, children);
+		}
+		return children;
+	}
+
+	/** The messaging mode the composer chip chose for a chat that has no session yet. */
+	pendingMessagingFor(sessionResource: string): MessagingMode | undefined {
+		return this.pendingMessaging.get(sessionResource);
+	}
+
+	setPendingMessaging(sessionResource: string, mode: MessagingMode): void {
+		this.pendingMessaging.set(sessionResource, mode);
+	}
+
+	/**
+	 * Hands a message to a chat. The chat's next system-initiated turn calls `send` and then shows
+	 * the agent's reply, so the message and the answer appear where the user watches the agent.
+	 */
+	queueDelivery(sessionResource: string, message: AgentMessage, send: () => Promise<unknown>): PendingDelivery {
+		let settle!: (err?: unknown) => void;
+		const sent = new Promise<void>((resolve, reject) => settle = err => err === undefined ? resolve() : reject(err));
+		const entry = { message, send, settle };
+		const queue = this.deliveries.get(sessionResource) ?? [];
+		queue.push(entry);
+		this.deliveries.set(sessionResource, queue);
+		return {
+			sent,
+			cancel: () => {
+				const at = queue.indexOf(entry);
+				if (at >= 0) {
+					queue.splice(at, 1);
+				}
+				return at >= 0;
+			},
+		};
 	}
 
 	/** A session chosen with "Continue in Chat": the next new chat continues it instead of starting one. */
@@ -151,11 +239,15 @@ export class DragonChat implements vscode.Disposable {
 		}
 
 		const key = this.sessionKey(request);
+		if (request.isSystemInitiated) {
+			return this.handleDelivery(client, key, response, token);
+		}
 		const directory = DragonChat.directory();
 		// A chat with no history is a new conversation, so it gets a new OpenCode session, unless
-		// "Continue in Chat" just picked one for it.
-		let record = chatContext.history.length ? this.getSession(key) : undefined;
-		if (record && record.directory !== directory) {
+		// "Continue in Chat" just picked one for it or one was made for it (a team's lead, a teammate).
+		const stored = this.getSession(key);
+		let record = chatContext.history.length || stored?.bound ? stored : undefined;
+		if (record && !record.bound && record.directory !== directory) {
 			record = undefined;
 		}
 		let continued: string | undefined;
@@ -182,6 +274,9 @@ export class DragonChat implements vscode.Disposable {
 				const session = await client.createSession({ directory, title: truncate(request.prompt || 'Dragon chat', 60), agent, model, permissions: readOnly ? READ_ONLY_PERMISSIONS : undefined });
 				record = { id: session.id, directory, model: model && formatModelRef(model), agent, readOnly };
 				await this.setSession(key, record);
+				// Every chat's agent is known to the hub; it can message others only once the user turns that on.
+				await this.hub?.register(session.id, { name: truncate(request.prompt || 'agent', 24), directory, readOnly, messaging: this.pendingMessaging.get(key) ?? 'off' });
+				this.pendingMessaging.delete(key);
 			} else {
 				if (model && record.model !== formatModelRef(model)) {
 					await client.setModel(record.id, model);
@@ -196,7 +291,10 @@ export class DragonChat implements vscode.Disposable {
 					record.readOnly = readOnly;
 				}
 				await this.setSession(key, record);
+				await this.hub?.setReadOnly(record.id, readOnly);
 			}
+			// A person is speaking to this agent: it may be woken by other agents again.
+			await this.hub?.humanTurn(record.id);
 			await this.context.workspaceState.update('dragon.lastSession', record.id);
 			if (continued) {
 				response.markdown(vscode.l10n.t('Continuing the OpenCode session "{0}".', continued) + '\n\n');
@@ -225,6 +323,27 @@ export class DragonChat implements vscode.Disposable {
 			? () => client.request('POST', `/api/session/${encodeURIComponent(record!.id)}/command`, { body: { name: request.command, text, ...(files.length ? { files } : {}) } })
 			: () => client.prompt(record!.id, { text, files });
 		return this.runTurn(client, record.id, response, token, send);
+	}
+
+	/**
+	 * A turn the user did not type: a message from another agent, queued by `queueDelivery`. The
+	 * session keeps its model, agent and permissions; only a person's message changes those.
+	 */
+	private async handleDelivery(client: OpenCodeClient, key: string, response: vscode.ChatResponseStream, token: vscode.CancellationToken): Promise<vscode.ChatResult> {
+		const record = this.getSession(key);
+		const delivery = this.deliveries.get(key)?.shift();
+		if (!record || !delivery) {
+			return {};
+		}
+		return this.runTurn(client, record.id, response, token, async () => {
+			try {
+				await delivery.send();
+				delivery.settle();
+			} catch (err) {
+				delivery.settle(err ?? new Error('delivery failed'));
+				throw err;
+			}
+		}, delivery.message);
 	}
 
 	/**
@@ -299,22 +418,23 @@ export class DragonChat implements vscode.Disposable {
 	}
 
 	/** Subscribes to events, sends the turn, and renders until the session finishes. */
-	private async runTurn(client: OpenCodeClient, sessionID: string, response: vscode.ChatResponseStream, token: vscode.CancellationToken, send: () => Promise<unknown>): Promise<vscode.ChatResult> {
+	private async runTurn(client: OpenCodeClient, sessionID: string, response: vscode.ChatResponseStream, token: vscode.CancellationToken, send: () => Promise<unknown>, opening?: AgentMessage): Promise<vscode.ChatResult> {
 		const controller = new AbortController();
-		let children = this.children.get(sessionID);
-		if (!children) {
-			children = new Set();
-			this.children.set(sessionID, children);
-		}
-		const reducer = new TurnReducer(sessionID, children);
+		const reducer = new TurnReducer(sessionID, this.childrenOf(sessionID));
 		const renderer = new TurnRenderer(response, this.output);
+		if (opening) {
+			// The chat shows the message as the request that started this turn.
+			renderer.agentMessage(opening, false);
+		}
 		const changed = new Map<string, ChangedFile>();
 		let outcome: TurnOp & { kind: 'done' } | undefined;
 		let usage = { input: 0, output: 0 };
 
 		const cancel = token.onCancellationRequested(() => {
-			void client.interrupt(sessionID).catch(() => undefined);
+			// The stop is on disk before the interrupt, so a message racing it cannot wake the agent again.
+			void (this.hub?.stop(sessionID) ?? Promise.resolve()).catch(() => undefined).then(() => client.interrupt(sessionID)).catch(() => undefined);
 		});
+		this.activeTurns.set(sessionID, (this.activeTurns.get(sessionID) ?? 0) + 1);
 		try {
 			const events = client.events(controller.signal)[Symbol.asyncIterator]();
 			// Subscribe BEFORE sending, or the first deltas are lost. The first frame is `server.connected`.
@@ -367,6 +487,12 @@ export class DragonChat implements vscode.Disposable {
 				return { errorDetails: { message: message(err) } };
 			}
 		} finally {
+			const turns = (this.activeTurns.get(sessionID) ?? 1) - 1;
+			if (turns > 0) {
+				this.activeTurns.set(sessionID, turns);
+			} else {
+				this.activeTurns.delete(sessionID);
+			}
 			cancel.dispose();
 			controller.abort();
 			renderer.finish();
@@ -481,6 +607,7 @@ class TurnRenderer {
 	private readonly tools = new Map<string, vscode.ChatToolInvocationPart>();
 	/** Tool calls the user denied; they fail without having run. */
 	private readonly deniedTools = new Set<string>();
+	private readonly shownMessages = new Set<string>();
 	private output = false;
 
 	constructor(private readonly response: vscode.ChatResponseStream, private readonly log: vscode.LogOutputChannel) { }
@@ -508,6 +635,9 @@ class TurnRenderer {
 				return;
 			case 'status':
 				this.response.progress(op.message);
+				return;
+			case 'agent-message':
+				this.agentMessage(op);
 				return;
 			case 'tool-start': {
 				const part = new vscode.ChatToolInvocationPart(op.name, op.id);
@@ -554,6 +684,15 @@ class TurnRenderer {
 				return;
 			}
 		}
+	}
+
+	/** Shows a message from another agent, once: quoted and attributed, so it never reads as something the user or this agent said. */
+	agentMessage(message: AgentMessage, show = true): void {
+		const key = `${message.from}\n${message.text}`;
+		if (this.shownMessages.has(key) || !this.shownMessages.add(key) || !show) {
+			return;
+		}
+		this.response.markdown(`> **${vscode.l10n.t('From {0}', message.from)}**\n>\n${message.text.split('\n').map(line => `> ${line}`).join('\n')}\n\n`);
 	}
 
 	/** Marks tools still open when the turn ends (for example after a stop) as finished. */

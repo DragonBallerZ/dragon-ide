@@ -185,6 +185,16 @@
 				"category": "Dragon"
 			},
 			{
+				"command": "dragon.newTeam",
+				"title": "New Team",
+				"category": "Dragon"
+			},
+			{
+				"command": "dragon.agents.stopAll",
+				"title": "Stop All Agents",
+				"category": "Dragon"
+			},
+			{
 				"command": "dragon.localAI.setup",
 				"title": "Set Up Local AI",
 				"category": "Dragon"
@@ -211,6 +221,20 @@
 					"type": "string",
 					"default": "",
 					"markdownDescription": "Default model as `provider/model` (for example `ollama/qwen2.5-coder:7b` or `anthropic/claude-sonnet-5`). Used by the chat view and the OpenCode TUI. Leave empty to use OpenCode's own default."
+				},
+				"dragon.agents.maxWakes": {
+					"type": "integer",
+					"default": 25,
+					"minimum": 1,
+					"maximum": 200,
+					"description": "How many times other agents may start a turn for an agent before a person has to continue it. Your next message to the agent (or to its team's lead) resets the count."
+				},
+				"dragon.agents.maxTeammates": {
+					"type": "integer",
+					"default": 16,
+					"minimum": 1,
+					"maximum": 16,
+					"description": "The most teammates the lead of a team may start."
 				},
 				"dragon.permissionMode": {
 					"type": "string",

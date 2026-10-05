@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { METADATA_SOURCE, unwrapMessage } from '../agents/message';
 import type { OpenCodeEvent, PermissionRequest, ServerError, ToolContent } from '../opencode/types';
 
 /** A file changed by a tool, as reported in `session.tool.success` metadata. */
@@ -26,6 +27,8 @@ export type TurnOp =
 	| { readonly kind: 'permission'; readonly request: PermissionRequest }
 	| { readonly kind: 'form'; readonly formID: string }
 	| { readonly kind: 'status'; readonly message: string }
+	/** A message another agent sent to this session. */
+	| { readonly kind: 'agent-message'; readonly from: string; readonly text: string }
 	| { readonly kind: 'usage'; readonly input: number; readonly output: number }
 	| { readonly kind: 'done'; readonly outcome: 'succeeded' | 'failed' | 'interrupted'; readonly error?: ServerError };
 
@@ -120,6 +123,15 @@ export class TurnReducer {
 				}
 				const attempt = (event.type === 'session.status' ? status.attempt : data.attempt) as number | undefined;
 				return [{ kind: 'status', message: `The model provider is retrying${attempt ? ` (attempt ${attempt})` : ''}…` }];
+			}
+			case 'session.inbox.enqueued': {
+				// A message from another agent, as it reaches this session's inbox.
+				const item = obj(data.item);
+				const payload = obj(item.payload);
+				const metadata = obj(payload.metadata);
+				return item.type === 'synthetic' && metadata.source === METADATA_SOURCE
+					? [{ kind: 'agent-message', from: str(metadata.fromName) || 'agent', text: unwrapMessage(str(payload.text)) }]
+					: [];
 			}
 			case 'session.compaction.started':
 				return [{ kind: 'status', message: 'Compacting the conversation to fit the model\'s context window…' }];

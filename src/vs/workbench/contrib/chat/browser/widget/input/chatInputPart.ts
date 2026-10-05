@@ -173,7 +173,7 @@ import { IPermissionPickerDelegate, PermissionPickerActionItem } from './permiss
 import { SessionTypePickerActionItem } from './sessionTargetPickerActionItem.js';
 import { WorkspacePickerActionItem } from './workspacePickerActionItem.js';
 import { ChatContextUsageWidget } from '../../widgetHosts/viewPane/chatContextUsageWidget.js';
-import { DragonDirectoryToggle, DragonPermissionToggle } from '../../../../dragonShared/browser/composerChips.js'; // DRAGON
+import { DragonDirectoryToggle, DragonMessagingToggle, DragonPermissionToggle } from '../../../../dragonShared/browser/composerChips.js'; // DRAGON
 import { DragonUsageChips } from '../../../../dragonShared/browser/usageChips.js'; // DRAGON
 import { Target } from '../../../common/promptSyntax/promptTypes.js';
 import { ConfigureToolsAction } from '../../actions/chatToolActions.js';
@@ -3290,6 +3290,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		if (this.options.renderStyle !== 'compact') {
 			this._register(this.instantiationService.createInstance(DragonPermissionToggle, elements.dragonChips));
 			this._register(this.instantiationService.createInstance(DragonDirectoryToggle, elements.dragonChips));
+			this._register(this.instantiationService.createInstance(DragonMessagingToggle, elements.dragonChips, { sessionResource: () => this._widget?.viewModel?.model.sessionResource })); // DRAGON: messages between agents, per chat
 			this.dragonUsage = this._register(this.instantiationService.createInstance(DragonUsageChips, elements.secondaryToolbar, { // DRAGON: context, cache hit and price readout, at the toolbar's end
 				sessionResource: () => this._widget?.viewModel?.model.sessionResource,
 				model: () => { const lm = this._currentLanguageModel.get(); return lm && { vendor: lm.metadata.vendor, id: lm.metadata.id }; },

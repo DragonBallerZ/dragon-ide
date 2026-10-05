@@ -95,7 +95,8 @@
     "dragon:check-ui": "node scripts/dragon/check-ui-branding.mts",
     "dragon:smoke-usage": "node scripts/dragon/smoke-usage.mts",
     "dragon:smoke-onboarding": "node scripts/dragon/smoke-onboarding.mts",
-    "dragon:smoke-modes": "node scripts/dragon/smoke-modes.mts"
+    "dragon:smoke-modes": "node scripts/dragon/smoke-modes.mts",
+    "dragon:smoke-agents": "node scripts/dragon/smoke-agents.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
