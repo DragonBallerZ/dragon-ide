@@ -11,7 +11,9 @@
 //   3. The teammate reports with send_message: the report shows in the lead's chat, attributed to it
 //   4. Stop on the teammate: the lead's next message is kept for it, and does not start it again
 //   5. A teammate whose chat was closed is still woken by a message, and its command is approved (Full Access)
-//   6. The Messages chip in another chat cycles Off, On, Muted
+//   6. In Ask mode that teammate's command waits for Allow Once in a notification
+//   7. After a window reload the lead still leads, and the stopped teammate is still stopped
+//   8. The Messages chip in another chat cycles Off, On, Muted
 // It also checks what the model was sent: who is the lead, and who a message is from.
 //
 // Usage: node scripts/dragon/smoke-agents.mts [--app <packaged app dir>] [--out <dir>]
@@ -107,6 +109,9 @@ const mock = await startMockOllama([say('No scenario.')], MODEL, 0, {
 		standby: [say('Standing by.')],
 		closed: [{ kind: 'tool', name: 'send_message', args: { to: 'builder', message: '[[mock:touch]] Create closed.txt.' } }, { kind: 'tool', name: 'wait_agent', args: { agent: 'builder', timeoutSeconds: 60 } }, say('Closed-chat task done.')],
 		touch: [{ kind: 'tool', name: 'shell', args: { command: `node -e "require('fs').writeFileSync('closed.txt', '')"` } }, say('Touched.')],
+		asked: [{ kind: 'tool', name: 'send_message', args: { to: 'builder', message: '[[mock:touch2]] Create asked.txt.' } }, { kind: 'tool', name: 'wait_agent', args: { agent: 'builder', timeoutSeconds: 60 } }, say('Asked task done.')],
+		touch2: [{ kind: 'tool', name: 'shell', args: { command: `node -e "require('fs').writeFileSync('asked.txt', '')"` } }, say('Touched again.')],
+		reloaded: [{ kind: 'tool', name: 'send_message', args: { to: 'scout', message: 'Are you there after the reload?' } }, say('Reload nudge sent.')],
 		nudge: [{ kind: 'tool', name: 'send_message', args: { to: 'scout', message: 'Carry on with the next file.' } }, say('Nudge sent.')],
 	},
 });
@@ -311,6 +316,73 @@ try {
 			throw new Error('closed.txt was not created: the teammate did not work, or its command was not approved');
 		}
 		await shot(win, 'closed-chat-teammate');
+	});
+
+	await step(win, 'in Ask mode, a closed-chat teammate\'s command waits for Allow Once in a notification', async () => {
+		const lead = groups.first();
+		const permission = lead.locator('.interactive-input-part .dragon-permission-toggle');
+		for (let i = 0; i < 3 && !(await permission.getAttribute('class'))?.includes('dragon-permission-ask'); i++) {
+			const before = await permission.getAttribute('class');
+			await permission.click();
+			await win.waitForFunction(previous => document.querySelector('.editor-group-container .interactive-input-part .dragon-permission-toggle')?.getAttribute('class') !== previous, before, { timeout: STEP_TIMEOUT });
+		}
+		if (!(await permission.getAttribute('class'))?.includes('dragon-permission-ask')) {
+			throw new Error(`the permission chip did not reach Ask: ${await permission.getAttribute('class')}`);
+		}
+		await lead.locator(INPUT).click();
+		await win.keyboard.insertText('[[mock:asked]] Have the builder create asked.txt.');
+		await win.keyboard.press('Enter');
+		const toast = win.locator('.notifications-toasts .notification-toast', { hasText: 'Agent "builder" asks' });
+		await toast.waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		if (fs.existsSync(path.join(workspace, 'asked.txt'))) {
+			throw new Error('the command ran before it was allowed');
+		}
+		await toast.getByRole('button', { name: 'Allow Once' }).click();
+		await lead.locator('.interactive-item-container.interactive-response .rendered-markdown', { hasText: 'Asked task done.' }).first().waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await idle(lead);
+		if (!fs.existsSync(path.join(workspace, 'asked.txt'))) {
+			throw new Error('asked.txt was not created after Allow Once');
+		}
+		await shot(win, 'ask-notification');
+	});
+
+	await step(win, 'after a window reload the team is intact and the stopped teammate is still stopped', async () => {
+		// How often the lead's conversation, as last sent to the model, holds the refusal: once before the reload.
+		const told = () => {
+			const last = mock.requests.filter(r => r.path.startsWith('/v1/chat/completions') && JSON.stringify(r.body).includes('[[mock:lead]]')).at(-1);
+			return JSON.stringify(last?.body ?? '').split('but it was not woken: the user stopped it').length - 1;
+		};
+		const before = told();
+		// A turn that has only just ended still counts as in progress for a moment, and the app then asks before reloading.
+		await win.waitForTimeout(3000);
+		// Wait for the new page: the old one still shows the team until it goes.
+		const loaded = win.waitForEvent('load', { timeout: STEP_TIMEOUT });
+		await runCommand(win, 'Developer: Reload Window');
+		await loaded;
+		await win.waitForSelector('.monaco-workbench', { timeout: STEP_TIMEOUT });
+		const lead = groups.first();
+		await lead.locator(INPUT).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await chip(lead).and(win.locator('.dragon-messaging-on')).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await lead.locator('.interactive-input-part .chat-input-toolbars').getByText('Acme Large', { exact: true }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		// Just after a reload the composer can be visible before it takes input: type until the message is in the chat.
+		for (let attempt = 0; ; attempt++) {
+			await lead.locator(INPUT).click();
+			await win.keyboard.insertText('[[mock:reloaded]] Check on scout.');
+			await win.keyboard.press('Enter');
+			if (await lead.locator('.interactive-item-container.interactive-request', { hasText: '[[mock:reloaded]]' }).first().waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false)) {
+				break;
+			}
+			if (attempt === 5) {
+				throw new Error('the lead\'s chat did not take a message after the reload');
+			}
+			await win.keyboard.press('ControlOrMeta+A');
+			await win.keyboard.press('Backspace');
+		}
+		await lead.locator('.interactive-item-container.interactive-response .rendered-markdown', { hasText: 'Reload nudge sent.' }).first().waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		if (before !== 1 || told() !== 2) {
+			throw new Error(`after the reload the lead could not message scout, or scout was no longer stopped (refusals in the lead's conversation: ${before} before, ${told()} after)`);
+		}
+		await shot(win, 'after-reload');
 	});
 
 	await step(win, 'the Messages chip in another chat cycles Off, On, Muted', async () => {

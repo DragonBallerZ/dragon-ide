@@ -105,9 +105,6 @@ Left for later:
 
 - [ ] An agent whose chat is not loaded works without a transcript in the chat view (it is in OpenCode and
   the TUI). Phase 2's session provider would show it.
-- [ ] An automated test of the Ask-mode notification for an agent working outside a chat turn (Full Access
-  is covered by the desktop smoke test).
-- [ ] A test of a window reload in the middle of a team's work.
 
 ### Decisions for the owner
 
