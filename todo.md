@@ -103,10 +103,10 @@ Built on 2026-10-05, ahead of Phases 0–2, on plain chat editors (see `extensio
 
 Left for later:
 
-- [ ] A shared task list for a team ("the task tools"): the lead delegates with `spawn_teammate` and messages only.
 - [ ] An agent whose chat is not loaded works without a transcript in the chat view (it is in OpenCode and
   the TUI). Phase 2's session provider would show it.
-- [ ] An automated test of approvals for an agent working outside a chat turn (the notification path).
+- [ ] An automated test of the Ask-mode notification for an agent working outside a chat turn (Full Access
+  is covered by the desktop smoke test).
 - [ ] A test of a window reload in the middle of a team's work.
 
 ### Decisions for the owner

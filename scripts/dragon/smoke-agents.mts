@@ -10,7 +10,8 @@
 //      there as a "From lead" turn, not as something the user typed
 //   3. The teammate reports with send_message: the report shows in the lead's chat, attributed to it
 //   4. Stop on the teammate: the lead's next message is kept for it, and does not start it again
-//   5. The Messages chip in another chat cycles Off, On, Muted
+//   5. A teammate whose chat was closed is still woken by a message, and its command is approved (Full Access)
+//   6. The Messages chip in another chat cycles Off, On, Muted
 // It also checks what the model was sent: who is the lead, and who a message is from.
 //
 // Usage: node scripts/dragon/smoke-agents.mts [--app <packaged app dir>] [--out <dir>]
@@ -102,6 +103,10 @@ const mock = await startMockOllama([say('No scenario.')], MODEL, 0, {
 		],
 		// A command that outlasts the test, for the user to stop.
 		busy: [{ kind: 'tool', name: 'shell', args: { command: 'node -e "setTimeout(() => {}, 120000)"' } }, say('Busy turn went on.')],
+		hire: [{ kind: 'tool', name: 'spawn_teammate', args: { name: 'builder', prompt: '[[mock:standby]] Stand by for a task.' } }, { kind: 'tool', name: 'wait_agent', args: { agent: 'builder', timeoutSeconds: 60 } }, say('Hired.')],
+		standby: [say('Standing by.')],
+		closed: [{ kind: 'tool', name: 'send_message', args: { to: 'builder', message: '[[mock:touch]] Create closed.txt.' } }, { kind: 'tool', name: 'wait_agent', args: { agent: 'builder', timeoutSeconds: 60 } }, say('Closed-chat task done.')],
+		touch: [{ kind: 'tool', name: 'shell', args: { command: `node -e "require('fs').writeFileSync('closed.txt', '')"` } }, say('Touched.')],
 		nudge: [{ kind: 'tool', name: 'send_message', args: { to: 'scout', message: 'Carry on with the next file.' } }, say('Nudge sent.')],
 	},
 });
@@ -284,6 +289,28 @@ try {
 			throw new Error(`the stopped teammate started working again (${rows} -> ${after} requests in its chat)`);
 		}
 		await shot(win, 'stopped-not-woken');
+	});
+
+	await step(win, 'a teammate whose chat is closed still gets a message, works, and has its command approved', async () => {
+		const lead = groups.first();
+		const say = async (text: string, done: string) => {
+			await lead.locator(INPUT).click();
+			await win.keyboard.insertText(text);
+			await win.keyboard.press('Enter');
+			await lead.locator('.interactive-item-container.interactive-response .rendered-markdown', { hasText: done }).first().waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+			await idle(lead);
+		};
+		await say('[[mock:hire]] Hire a builder.', 'Hired.');
+		const tab = win.locator('.tabs-container .tab', { hasText: 'builder' });
+		await tab.waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await groups.nth(2).locator('.rendered-markdown', { hasText: 'Standing by.' }).first().waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await tab.click({ button: 'middle' });
+		await tab.waitFor({ state: 'detached', timeout: STEP_TIMEOUT });
+		await say('[[mock:closed]] Have the builder create closed.txt.', 'Closed-chat task done.');
+		if (!fs.existsSync(path.join(workspace, 'closed.txt'))) {
+			throw new Error('closed.txt was not created: the teammate did not work, or its command was not approved');
+		}
+		await shot(win, 'closed-chat-teammate');
 	});
 
 	await step(win, 'the Messages chip in another chat cycles Off, On, Muted', async () => {
