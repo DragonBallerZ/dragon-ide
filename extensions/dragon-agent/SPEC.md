@@ -1,6 +1,6 @@
 ---
 spec_id: dragon-agent
-version: 0.8.2
+version: 0.9.0
 status: active
 owners: [VELLORAAI]
 last_synced_with_central: 2026-09-30

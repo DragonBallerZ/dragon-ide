@@ -1,7 +1,7 @@
 {
 	"nameShort": "Dragon IDE",
 	"nameLong": "Dragon IDE",
-	"dragonVersion": "1.1.3",
+	"dragonVersion": "1.1.4",
 	"dragonUpdateFeed": "https://api.github.com/repos/VELLORAAI/dragon-ide/releases/latest",
 	"applicationName": "dragon-ide",
 	"dataFolderName": ".dragon-ide",

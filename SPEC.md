@@ -1,6 +1,6 @@
 ---
 spec_id: dragon-ide
-version: 0.9.4
+version: 0.9.5
 status: active
 owners: [VELLORAAI]
 last_synced_with_central: 2026-09-30
@@ -140,7 +140,7 @@ The full contracts are in [`extensions/dragon-agent/SPEC.md`](extensions/dragon-
 
 ## Changelog
 
-- Unreleased (2026-10-05): agents message each other and work in teams (dragon-agent 0.9.0): the Messages chip, **Dragon: New Team**, **Dragon: Stop All Agents**, and a desktop smoke test of them.
+- 0.9.5 (2026-10-05): V1.1.4; agents message each other and work in teams (dragon-agent 0.9.0): the Messages chip, **Dragon: New Team**, **Dragon: Stop All Agents**, and a desktop smoke test of them.
 
 - 0.9.4 (2026-10-03): V1.1.3; Claude on Amazon Bedrock gets its output limit (at most 32,000 tokens), so a long file is no longer cut off at 4,096 tokens in the middle of a write (`opencode-patches/0002`).
 - 0.9.3 (2026-10-02): V1.1.2; the entrance and the Welcome page are headed Dragon IDE instead of FREEDOM AI; permission modes that hold (Allow allows, Ask asks, Ask mode and Read-Only change nothing; dragon-agent 0.8.2) and a desktop smoke test of them; notarized Mac apps.
