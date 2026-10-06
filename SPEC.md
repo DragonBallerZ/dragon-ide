@@ -1,6 +1,6 @@
 ---
 spec_id: dragon-ide
-version: 0.9.5
+version: 0.9.6
 status: active
 owners: [VELLORAAI]
 last_synced_with_central: 2026-09-30
@@ -139,6 +139,8 @@ The full contracts are in [`extensions/dragon-agent/SPEC.md`](extensions/dragon-
 - **Asset licensing** (details in `DESIGN.md`). Every shipped design asset is original or openly licensed: the heading font is Almendra (OFL 1.1), and the onboarding dragon is original artwork and motion code. New assets need a license recorded in `DESIGN.md` and `ThirdPartyNotices.txt`.
 
 ## Changelog
+
+- 0.9.6 (2026-10-06): V1.1.5; **Dragon: New Agent**, the plus in a chat's title, opens an agent in a Git worktree and branch of its own (dragon-agent 0.10.0), with a desktop smoke check of it.
 
 - 0.9.5 (2026-10-05): V1.1.4; agents message each other and work in teams (dragon-agent 0.9.0): the Messages chip, **Dragon: New Team**, **Dragon: Stop All Agents**, and a desktop smoke test of them.
 

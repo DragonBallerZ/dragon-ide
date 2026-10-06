@@ -14,6 +14,7 @@
 //   6. In Ask mode that teammate's command waits for Allow Once in a notification
 //   7. After a window reload the lead still leads, and the stopped teammate is still stopped
 //   8. The Messages chip in another chat cycles Off, On, Muted
+//   9. The plus in a chat's title opens a new agent in a Git worktree and branch of its own
 // It also checks what the model was sent: who is the lead, and who a message is from.
 //
 // Usage: node scripts/dragon/smoke-agents.mts [--app <packaged app dir>] [--out <dir>]
@@ -88,6 +89,7 @@ const userData = path.join(temp, 'user-data');
 fs.mkdirSync(workspace);
 fs.mkdirSync(path.join(userData, 'User'), { recursive: true });
 fs.writeFileSync(path.join(workspace, 'notes.txt'), 'todo\n');
+const worktrees = path.join(temp, 'worktrees');
 
 // Each agent's prompt names its script with a `[[mock:<name>]]` marker.
 const say = (text: string): ScriptStep => ({ kind: 'text', chunks: [text] });
@@ -112,6 +114,7 @@ const mock = await startMockOllama([say('No scenario.')], MODEL, 0, {
 		asked: [{ kind: 'tool', name: 'send_message', args: { to: 'builder', message: '[[mock:touch2]] Create asked.txt.' } }, { kind: 'tool', name: 'wait_agent', args: { agent: 'builder', timeoutSeconds: 60 } }, say('Asked task done.')],
 		touch2: [{ kind: 'tool', name: 'shell', args: { command: `node -e "require('fs').writeFileSync('asked.txt', '')"` } }, say('Touched again.')],
 		reloaded: [{ kind: 'tool', name: 'send_message', args: { to: 'scout', message: 'Are you there after the reload?' } }, say('Reload nudge sent.')],
+		own: [{ kind: 'tool', name: 'shell', args: { command: `node -e "require('fs').writeFileSync('own.txt', '')"` } }, say('Own file written.')],
 		nudge: [{ kind: 'tool', name: 'send_message', args: { to: 'scout', message: 'Carry on with the next file.' } }, say('Nudge sent.')],
 	},
 });
@@ -131,6 +134,7 @@ fs.writeFileSync(path.join(userData, 'User', 'settings.json'), JSON.stringify({
 	'security.workspace.trust.enabled': false,
 	'dragon.model': `acme/${MODEL}`,
 	'dragon.permissionMode': 'full-access',
+	'dragon.agents.worktreesFolder': worktrees,
 	'dragon.ollama.enabled': false,
 	'dragon.semanticSearch.enabled': false,
 	'dragon.completions.enabled': false,
@@ -140,6 +144,14 @@ fs.writeFileSync(path.join(userData, 'User', 'settings.json'), JSON.stringify({
 	'extensions.autoCheckUpdates': false,
 	'workbench.tips.enabled': false,
 }, null, '\t'));
+
+// New Agent makes worktrees of the workspace's repository, at its current commit.
+for (const command of [['init', '--quiet'], ['add', '.'], ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.com', 'commit', '--quiet', '-m', 'start']]) {
+	const result = spawnSync('git', command, { cwd: workspace, encoding: 'utf8' });
+	if (result.status !== 0) {
+		throw new Error(`git ${command.join(' ')} failed: ${result.stderr || result.error?.message}`);
+	}
+}
 
 const exe = executable();
 if (!fs.existsSync(exe.path)) {
@@ -401,6 +413,37 @@ try {
 			throw new Error(`the chip went through ${seen.join(', ')}`);
 		}
 		await shot(win, 'messages-chip');
+	});
+
+	await step(win, 'the plus in a chat\'s title opens a new agent in a Git worktree and branch of its own', async () => {
+		const lead = groups.first();
+		// A group shows its title buttons while it is the active one.
+		await lead.locator(INPUT).click();
+		await lead.locator('.title .editor-actions').getByRole('button', { name: /^New Agent/ }).click({ timeout: STEP_TIMEOUT });
+		await lead.locator('.tabs-container .tab', { hasText: 'agent-1' }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await chip(lead).and(win.locator('.dragon-messaging-on')).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		// The folder chip names this chat's worktree, not the folder the window has open.
+		await lead.locator('.interactive-input-part .dragon-directory-toggle', { hasText: 'agent-1' }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await lead.locator(INPUT).click();
+		await win.keyboard.insertText('[[mock:own]] Create own.txt.');
+		await win.keyboard.press('Enter');
+		// The mode is still Ask, so the agent's command is asked about in its own chat.
+		await lead.locator('.interactive-session').getByRole('button', { name: 'Submit' }).click({ timeout: STEP_TIMEOUT });
+		await lead.locator('.interactive-item-container.interactive-response .rendered-markdown', { hasText: 'Own file written.' }).first().waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await idle(lead);
+		const roots = fs.existsSync(worktrees) ? fs.readdirSync(worktrees).map(repo => path.join(worktrees, repo, 'agent-1')) : [];
+		const listed = spawnSync('git', ['worktree', 'list', '--porcelain'], { cwd: workspace, encoding: 'utf8' }).stdout;
+		const found = {
+			inWorktree: roots.length === 1 && fs.existsSync(path.join(roots[0], 'own.txt')),
+			inWorkspace: fs.existsSync(path.join(workspace, 'own.txt')),
+			branch: listed.includes('branch refs/heads/dragon/agent-1'),
+			committedFile: roots.length === 1 && fs.existsSync(path.join(roots[0], 'notes.txt')),
+			told: sent().includes('on the branch dragon/agent-1'),
+		};
+		if (JSON.stringify(found) !== JSON.stringify({ inWorktree: true, inWorkspace: false, branch: true, committedFile: true, told: true })) {
+			throw new Error(`the new agent did not work in a worktree of its own: ${JSON.stringify(found)}`);
+		}
+		await shot(win, 'new-agent-worktree');
 	});
 
 } catch (err) {

@@ -4,12 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { AgentHub, Delivery, HubError, HubHost } from '../agents/hub';
 import { lastAssistantText, unwrapMessage, wrapMessage } from '../agents/message';
+import { createAgentWorktree } from '../agents/worktree';
 import { TurnReducer } from '../chat/turn';
 
 /** A hub with three agents (a, b with messaging on; c off) that records what it delivers. */
@@ -250,4 +252,48 @@ test('a message cannot pass itself off as another agent\'s, and the chat shows w
 		ops: [{ kind: 'agent-message', from: 'alpha', text: forged.replace(/<(\/?)agent-message/g, '<$1agent-message​') }],
 		lastReply: 'newest',
 	});
+});
+
+test('a new agent gets a worktree and branch of its own at the current commit; outside a repository it gets none', async () => {
+	const temp = realpathSync(mkdtempSync(path.join(tmpdir(), 'dragon-worktree-')));
+	try {
+		const repo = path.join(temp, 'repo');
+		const home = path.join(temp, 'worktrees');
+		const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: repo, encoding: 'utf8' }).trim();
+		mkdirSync(path.join(repo, 'pkg'), { recursive: true });
+		git('init', '--quiet');
+		assert.equal(await createAgentWorktree(repo, home), undefined, 'a repository with no commit');
+		writeFileSync(path.join(repo, 'pkg', 'a.txt'), 'committed\n');
+		git('add', '.');
+		git('commit', '--quiet', '-m', 'first');
+		writeFileSync(path.join(repo, 'pkg', 'a.txt'), 'not committed\n');
+
+		const first = await createAgentWorktree(path.join(repo, 'pkg'), home);
+		const second = await createAgentWorktree(repo, home);
+		assert.ok(first && second);
+		writeFileSync(path.join(first.directory, 'a.txt'), 'from agent-1\n');
+		assert.deepStrictEqual({
+			names: [first.name, second.name],
+			branches: [first.branch, second.branch],
+			firstWorksIn: path.relative(first.root, first.directory),
+			apart: first.root !== second.root && !first.root.startsWith(repo) && path.dirname(first.root) === path.dirname(second.root),
+			sameCommit: git('rev-parse', 'dragon/agent-1') === git('rev-parse', 'HEAD') && git('rev-parse', 'dragon/agent-2') === git('rev-parse', 'HEAD'),
+			worktrees: git('worktree', 'list', '--porcelain').split('\n').filter(line => line.startsWith('branch ')).length,
+			main: readFileSync(path.join(repo, 'pkg', 'a.txt'), 'utf8'),
+			second: readFileSync(path.join(second.root, 'pkg', 'a.txt'), 'utf8'),
+			outside: await createAgentWorktree(temp, home),
+		}, {
+			names: ['agent-1', 'agent-2'],
+			branches: ['dragon/agent-1', 'dragon/agent-2'],
+			firstWorksIn: 'pkg',
+			apart: true,
+			sameCommit: true,
+			worktrees: 3,
+			main: 'not committed\n',
+			second: 'committed\n',
+			outside: undefined,
+		});
+	} finally {
+		rmSync(temp, { recursive: true, force: true });
+	}
 });

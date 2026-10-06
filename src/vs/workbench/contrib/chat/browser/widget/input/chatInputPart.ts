@@ -3289,7 +3289,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		// DRAGON: permission mode and working-directory chips for the OpenCode agent.
 		if (this.options.renderStyle !== 'compact') {
 			this._register(this.instantiationService.createInstance(DragonPermissionToggle, elements.dragonChips));
-			this._register(this.instantiationService.createInstance(DragonDirectoryToggle, elements.dragonChips));
+			this._register(this.instantiationService.createInstance(DragonDirectoryToggle, elements.dragonChips, { sessionResource: () => this._widget?.viewModel?.model.sessionResource }));
 			this._register(this.instantiationService.createInstance(DragonMessagingToggle, elements.dragonChips, { sessionResource: () => this._widget?.viewModel?.model.sessionResource })); // DRAGON: messages between agents, per chat
 			this.dragonUsage = this._register(this.instantiationService.createInstance(DragonUsageChips, elements.secondaryToolbar, { // DRAGON: context, cache hit and price readout, at the toolbar's end
 				sessionResource: () => this._widget?.viewModel?.model.sessionResource,

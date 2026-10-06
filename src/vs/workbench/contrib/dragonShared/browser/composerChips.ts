@@ -92,13 +92,26 @@ export class DragonPermissionToggle extends Disposable {
 
 export const DRAGON_MOVE_COMMAND = 'dragon.moveSession';
 
-/** The composer chip showing (and changing) the directory OpenCode works in. */
+/** Where a composer chip finds the chat it belongs to. */
+export interface DragonChatSource {
+	sessionResource(): URI | undefined;
+}
+
+export const DRAGON_SESSION_DIRECTORY_COMMAND = 'dragon.agents.directory';
+const CHAT_REFRESH_MS = 3000;
+
+/**
+ * The composer chip showing the directory this chat's agent works in (a worktree of its own for an
+ * agent started with New Agent), and changing the directory new sessions work in.
+ */
 export class DragonDirectoryToggle extends Disposable {
 	readonly domNode: HTMLButtonElement;
 	private readonly label: HTMLElement;
+	private generation = 0;
 
 	constructor(
 		container: HTMLElement,
+		private readonly source: DragonChatSource,
 		@ICommandService private readonly commandService: ICommandService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
@@ -125,14 +138,38 @@ export class DragonDirectoryToggle extends Disposable {
 			}
 		}));
 		container.appendChild(this.domNode);
+		// A chat gets its session, and with it its directory, after the composer is made.
+		const timer = getActiveWindow().setInterval(() => this.refresh(), CHAT_REFRESH_MS);
+		this._register(toDisposable(() => getActiveWindow().clearInterval(timer)));
 		this.refresh();
 	}
 
 	private refresh(): void {
+		const sessionResource = this.source.sessionResource()?.toString();
+		const generation = ++this.generation;
+		const show = (own: string | undefined) => {
+			if (generation === this.generation && !this._store.isDisposed) {
+				this.render(own);
+			}
+		};
+		if (!sessionResource || !this.domNode.isConnected || getActiveWindow().document.visibilityState === 'hidden') {
+			show(undefined);
+			return;
+		}
+		this.commandService.executeCommand<string | undefined>(DRAGON_SESSION_DIRECTORY_COMMAND, { sessionResource }).then(show, () => show(undefined));
+	}
+
+	/** `own` is the directory of this chat's session, once it has one. */
+	private render(own: string | undefined): void {
 		const configured = this.configurationService.getValue<string>('dragon.workingDirectory')?.trim();
 		const folder = this.contextService.getWorkspace().folders[0];
 		const name = configured ? basename(configured) : folder ? resourceBasename(folder.uri) : localize('dragon.directory.none', "Home");
 		const where = configured || folder?.uri.fsPath;
+		if (own && own !== where) {
+			reset(this.label, basename(own));
+			this.domNode.title = localize('dragon.directory.tooltipOwn', "This chat's agent works in {0}. Click to choose the directory for new sessions.", own);
+			return;
+		}
 		reset(this.label, name);
 		this.domNode.title = where
 			? localize('dragon.directory.tooltip', "OpenCode works in {0}. Click to choose another directory for new sessions.", where)
@@ -161,7 +198,6 @@ export interface DragonMessagingState {
 
 export const DRAGON_MESSAGING_STATE_COMMAND = 'dragon.agents.messagingState';
 export const DRAGON_MESSAGING_CYCLE_COMMAND = 'dragon.agents.cycleMessaging';
-const MESSAGING_REFRESH_MS = 3000;
 
 const MESSAGING_LABELS: Record<DragonMessagingMode, string> = {
 	'off': localize('dragon.messaging.off', "Messages Off"),
@@ -181,11 +217,6 @@ const MESSAGING_TOOLTIPS: Record<DragonMessagingMode, string> = {
 	'muted': localize('dragon.messaging.muted.tooltip', "Messages Muted: messages from other agents are kept for this agent but do not start a turn. Click to turn messages off."),
 };
 
-/** Where the messaging chip finds the chat it belongs to. */
-export interface DragonMessagingSource {
-	sessionResource(): URI | undefined;
-}
-
 /** The composer chip that turns messages between agents on, mutes them, or turns them off for this chat. */
 export class DragonMessagingToggle extends Disposable {
 	readonly domNode: HTMLButtonElement;
@@ -195,7 +226,7 @@ export class DragonMessagingToggle extends Disposable {
 
 	constructor(
 		container: HTMLElement,
-		private readonly source: DragonMessagingSource,
+		private readonly source: DragonChatSource,
 		@ICommandService private readonly commandService: ICommandService,
 	) {
 		super();
@@ -216,7 +247,7 @@ export class DragonMessagingToggle extends Disposable {
 		container.appendChild(this.domNode);
 		this.render(undefined);
 		// The state also changes from outside the chip: a new team, or a teammate the lead spawned.
-		const timer = getActiveWindow().setInterval(() => this.refresh(), MESSAGING_REFRESH_MS);
+		const timer = getActiveWindow().setInterval(() => this.refresh(), CHAT_REFRESH_MS);
 		this._register(toDisposable(() => getActiveWindow().clearInterval(timer)));
 		this.refresh();
 	}

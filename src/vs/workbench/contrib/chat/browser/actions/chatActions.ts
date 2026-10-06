@@ -687,12 +687,8 @@ export function registerChatActions() {
 					id: MenuId.ChatNewMenu,
 					group: '2_new',
 					order: 2
-				}, {
-					id: MenuId.EditorTitle,
-					group: 'navigation',
-					when: ContextKeyExpr.and(ActiveEditorContext.isEqualTo(ChatEditorInput.EditorID), ChatContextKeys.newChatButtonExperimentIcon.notEqualsTo('copilot'), ChatContextKeys.newChatButtonExperimentIcon.notEqualsTo('new-session'), ChatContextKeys.newChatButtonExperimentIcon.notEqualsTo('comment')),
-					order: 1
 				}],
+				// Dragon IDE: the plus in a chat editor's title is Dragon: New Agent, from the dragon-agent extension.
 			});
 		}
 

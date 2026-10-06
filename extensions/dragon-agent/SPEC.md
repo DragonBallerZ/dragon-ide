@@ -1,6 +1,6 @@
 ---
 spec_id: dragon-agent
-version: 0.9.0
+version: 0.10.0
 status: active
 owners: [VELLORAAI]
 last_synced_with_central: 2026-09-30
@@ -218,6 +218,7 @@ The three commands that set a model resolve only once OpenCode lists it (at most
 - **Limits.** 16,000 characters per message; an identical message between the same two agents within 60 s is not delivered again; an agent is woken by other agents at most `dragon.agents.maxWakes` (25) times until a person messages it or its team's lead. Muted, stopped and over-limit agents get the message with `resume: false`, and the sender is told it was not woken.
 - **Stop.** Cancelling a turn writes `stopped` to the hub's registry before it calls OpenCode's interrupt. A stopped agent stays stopped until the user's next message to it. **Dragon: Stop All Agents** (`dragon.agents.stopAll`) does this for every working agent.
 - **Teams.** **Dragon: New Team** (`dragon.newTeam`) asks for a pane count (2, 3, 4 or 6) and a name, lays the editor area out as the lead on the left and a grid of panes on the right, opens the lead's chat with messaging on, and leaves a note in its inbox saying it leads the team. Only the lead may call `spawn_teammate` (at most `dragon.agents.maxTeammates`, 16). A teammate is a new OpenCode session with the lead's directory and model; it opens in the next pane (panes are shared as tabs after that) and its task arrives as a message from the lead. A read-only lead's teammates run the `plan` agent with the Read-Only rules.
+- **New Agent.** **Dragon: New Agent** (`dragon.newAgent`) is the plus in the title of a chat editor and of the Chat view. It opens a chat editor for a new agent with messaging on. When the working directory is in a Git repository with a commit, and the mode is not Read-Only, the agent gets a worktree of its own: `git worktree add -b dragon/agent-N <folder>/<repository>-<hash>/agent-N HEAD`, where the folder is `dragon.agents.worktreesFolder` (default `~/.dragon/worktrees`) and N is the first number with no such branch or folder. Its session works in the matching subfolder of the worktree, a note in its inbox names the worktree, the branch and the repository, and the composer's folder chip shows the worktree (`dragon.agents.directory({sessionResource})` → the chat's session directory). Changes that are not committed are not in the worktree. Elsewhere the agent works in the shared directory. Nothing removes a worktree or merges a branch; that is left to the user and Git.
 - **Approvals outside a chat turn.** A permission request from an agent no chat turn is showing is answered by the permission mode: Full Access allows once, Read-Only (or a read-only agent) rejects, Ask shows a notification (**Allow Once**, **Deny**, **Show Agent**). Its forms are cancelled.
 - **State.** The registry (agents, teams, the deduplication ledger) is `agents.json` in the workspace's storage, written atomically with mode 0600.
 - **Workbench commands** (`src/vs/workbench/contrib/chat/browser/actions/dragonAgentActions.ts`): `_dragon.chat.sendSystemRequest({sessionResource, message, label, agentId?})` → whether the chat took it; `_dragon.chat.openAgentEditor({title?, toSide?, group?, preserveFocus?})` → the new chat's session resource; `_dragon.chat.reveal(sessionResource)`.
@@ -255,7 +256,8 @@ The three commands that set a model resolve only once OpenCode lists it (at most
 - `src/test/search.test.ts` and `src/test/semantic.test.ts`: see the Instant Grep spec.
 - `src/test/usage.test.ts`: the cache-hit rounding cases from DeepSeek Harness, token and money formats, caching, OpenAI-style, uncached, local and free providers, tiered prices, compaction, and the service's per-session cache and invalidation. `src/test/usage.e2e.test.ts` (real OpenCode): an OpenAI-compatible provider with prices in the config layer reports 10,000 prompt tokens with 8,000 cached; the readout shows `80% cache hit`, the context and `$3 / $15 per 1M`, and OpenCode's recorded cost matches the prices. `src/test/sessionBridge.test.ts`: the event stream's fan-out, reconnect and isolation of a failing subscriber.
 - `src/test/agents.test.ts`: the hub's rules (sender, opt-in, size, duplicates, the wake limit), muted and stopped agents and that Stop is on disk before it returns, teams (only the lead spawns, the read-only ceiling, the size cap), `wait_agent`, the endpoint's token, a failed delivery, and a forged wrapper. Each rule was checked by removing it and seeing a test fail (16 of 16). `src/test/agents.e2e.test.ts` (real OpenCode): two agents message each other and wait, an agent with messaging off is not offered the tools, a stopped agent is not woken, and a read-only lead spawns a read-only teammate that reports back.
-- `npm run dragon:smoke-agents` (repository root): the desktop app: New Team, a stopped teammate that is not woken, a teammate with a closed chat whose command is approved (Full Access, and the Ask notification), and a window reload. Removing the stop-before-interrupt call, the approvals outside a chat turn, or the loading of the registry makes it fail.
+- `src/test/agents.test.ts` also makes two worktrees in a real repository: separate branches at the current commit, the matching subfolder, uncommitted changes left behind, and none outside a repository or before the first commit.
+- `npm run dragon:smoke-agents` (repository root): the desktop app: New Team, a stopped teammate that is not woken, a teammate with a closed chat whose command is approved (Full Access, and the Ask notification), a window reload, and the plus in a chat's title: the new agent's command writes into its worktree and not the open folder (making the session use the shared directory fails it). Removing the stop-before-interrupt call, the approvals outside a chat turn, or the loading of the registry makes it fail.
 - Run with `npm --prefix extensions/dragon-agent test`. Set `DRAGON_OPENCODE_BIN` to point at a binary other than `bin/opencode`.
 
 ## Risks
@@ -264,6 +266,8 @@ The three commands that set a model resolve only once OpenCode lists it (at most
 - VS Code's proposed chat APIs can change. They are compiled against `src/vscode-dts/vscode.proposed.*` at every upstream sync.
 
 ## Changelog
+
+- 0.10.0 (2026-10-06): **Dragon: New Agent**, the plus in a chat's title: a new agent with messaging on, in a Git worktree and branch of its own (`dragon.agents.worktreesFolder`). The folder chip shows each chat's own directory.
 
 - 0.9.0 (2026-10-05): agents message each other (`list_agents`, `send_message`, `wait_agent`), opt-in per chat with the Messages chip; teams (**Dragon: New Team**, `spawn_teammate`); **Dragon: Stop All Agents**.
 

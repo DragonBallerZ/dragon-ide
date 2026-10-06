@@ -1,4 +1,4 @@
-Dragon IDE V1.1.4 dependency notices. Copyright and license notices remain with their respective owners.
+Dragon IDE V1.1.5 dependency notices. Copyright and license notices remain with their respective owners.
 
 ================================================================================
 @anthropic-ai/sdk@0.82.0 (Code-OSS runtime)

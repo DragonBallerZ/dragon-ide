@@ -2,7 +2,7 @@
 	"name": "dragon-agent",
 	"displayName": "Dragon Agent (OpenCode)",
 	"description": "Runs OpenCode as Dragon IDE's agent: the chat view, the OpenCode TUI terminal, and local models through Ollama or Splash.",
-	"version": "1.1.4",
+	"version": "1.1.5",
 	"publisher": "vscode",
 	"license": "MIT",
 	"icon": "media/dragon.png",
@@ -190,6 +190,12 @@
 				"category": "Dragon"
 			},
 			{
+				"command": "dragon.newAgent",
+				"title": "New Agent",
+				"category": "Dragon",
+				"icon": "$(add)"
+			},
+			{
 				"command": "dragon.agents.stopAll",
 				"title": "Stop All Agents",
 				"category": "Dragon"
@@ -206,6 +212,18 @@
 					"command": "dragon.continueInTui",
 					"when": "view == workbench.panel.chat.view.copilot",
 					"group": "navigation@9"
+				},
+				{
+					"command": "dragon.newAgent",
+					"when": "view == workbench.panel.chat.view.copilot",
+					"group": "navigation@0"
+				}
+			],
+			"editor/title": [
+				{
+					"command": "dragon.newAgent",
+					"when": "activeEditor == workbench.editor.chatSession",
+					"group": "navigation@1"
 				}
 			],
 			"commandPalette": [
@@ -228,6 +246,12 @@
 					"minimum": 1,
 					"maximum": 200,
 					"description": "How many times other agents may start a turn for an agent before a person has to continue it. Your next message to the agent (or to its team's lead) resets the count."
+				},
+				"dragon.agents.worktreesFolder": {
+					"type": "string",
+					"default": "",
+					"scope": "machine-overridable",
+					"markdownDescription": "The folder that **Dragon: New Agent** makes each agent's Git worktree in. Empty means `.dragon/worktrees` in your home folder."
 				},
 				"dragon.agents.maxTeammates": {
 					"type": "integer",

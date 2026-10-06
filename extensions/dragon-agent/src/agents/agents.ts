@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { DragonChat, permissionMode } from '../chat/participant';
@@ -15,6 +16,7 @@ import type { SessionBridge } from '../opencode/sessionBridge';
 import type { OpenCodeEvent, PermissionDecision, PermissionRequest } from '../opencode/types';
 import { AgentHub, AgentRecord, Delivery, HubHost, MessagingMode } from './hub';
 import { lastAssistantText } from './message';
+import { createAgentWorktree } from './worktree';
 
 /** How long a chat has to start the turn that delivers a message before the message goes in without it. */
 const CHAT_DELIVERY_TIMEOUT = 10_000;
@@ -69,6 +71,8 @@ export class DragonAgents implements vscode.Disposable {
 			vscode.commands.registerCommand('dragon.agents.messagingState', (args?: { sessionResource?: string }) => this.messagingState(args?.sessionResource)),
 			vscode.commands.registerCommand('dragon.agents.cycleMessaging', (args?: { sessionResource?: string }) => this.cycleMessaging(args?.sessionResource)),
 			vscode.commands.registerCommand('dragon.newTeam', () => this.newTeam()),
+			vscode.commands.registerCommand('dragon.agents.directory', (args?: { sessionResource?: string }) => args?.sessionResource ? this.chat.recordFor(args.sessionResource)?.directory : undefined),
+			vscode.commands.registerCommand('dragon.newAgent', () => this.newAgent()),
 			vscode.commands.registerCommand('dragon.agents.stopAll', () => this.stopAll()),
 		);
 	}
@@ -203,10 +207,7 @@ export class DragonAgents implements vscode.Disposable {
 		}
 		const client = await this.server.ensure();
 		const directory = DragonChat.directory();
-		const readOnly = permissionMode() === 'read-only';
-		const configured = vscode.workspace.getConfiguration('dragon').get<string>('model')?.trim();
-		const model = configured ? parseModelRef(configured) : undefined;
-		const agent = readOnly ? 'plan' : 'build';
+		const { readOnly, model, agent } = sessionDefaults();
 		const session = await client.createSession({ directory, title: vscode.l10n.t('Lead of {0}', name || 'team'), agent, model, permissions: readOnly ? READ_ONLY_PERMISSIONS : undefined });
 
 		await vscode.commands.executeCommand('vscode.setEditorLayout', teamLayout(picked.size));
@@ -225,6 +226,46 @@ export class DragonAgents implements vscode.Disposable {
 			metadata: { source: 'dragon.team' },
 			resume: false,
 		});
+	}
+
+	/**
+	 * Dragon: New Agent. Opens a chat for a new agent with messaging on. In a Git repository the
+	 * agent gets a worktree and branch of its own, so agents working side by side do not change
+	 * each other's files; elsewhere, and in Read-Only mode, it works in the shared folder.
+	 */
+	private async newAgent(): Promise<void> {
+		const client = await this.server.ensure();
+		const shared = DragonChat.directory();
+		const { readOnly, model, agent } = sessionDefaults();
+		let worktree: Awaited<ReturnType<typeof createAgentWorktree>>;
+		if (!readOnly) {
+			try {
+				worktree = await createAgentWorktree(shared, vscode.workspace.getConfiguration('dragon.agents').get<string>('worktreesFolder')?.trim() || path.join(os.homedir(), '.dragon', 'worktrees'));
+			} catch (err) {
+				this.log.warn(`[agents] no worktree for a new agent: ${message(err)}`);
+				void vscode.window.showWarningMessage(vscode.l10n.t('A worktree could not be made for the new agent, so it works in {0}: {1}', shared, message(err)));
+			}
+		}
+		const directory = worktree?.directory ?? shared;
+		const session = await client.createSession({ directory, title: worktree?.name ?? vscode.l10n.t('agent'), agent, model, permissions: readOnly ? READ_ONLY_PERMISSIONS : undefined });
+		const record = await this.hub.register(session.id, { name: worktree?.name ?? 'agent', directory, readOnly, messaging: 'on' });
+		const chatResource = await vscode.commands.executeCommand<string | undefined>('_dragon.chat.openAgentEditor', { title: record.name });
+		if (!chatResource) {
+			throw new Error(vscode.l10n.t('The agent\'s chat could not be opened.'));
+		}
+		await this.chat.bindSession(chatResource, { id: session.id, directory, model: model && formatModelRef(model), agent, readOnly });
+		if (worktree) {
+			// Kept in the agent's inbox until the user's first message, which it then reads first.
+			await client.synthetic(session.id, {
+				text: `You are "${record.name}". You work in a Git worktree of your own at ${worktree.root}, on the branch ${worktree.branch} of the repository at ${worktree.repository}. Other agents work in other worktrees of it. Change files only inside your worktree; your changes reach the main working tree when your branch is merged.`,
+				description: vscode.l10n.t('Worktree {0}', worktree.branch),
+				metadata: { source: 'dragon.worktree' },
+				resume: false,
+			});
+			vscode.window.setStatusBarMessage(vscode.l10n.t('{0} works on the branch {1}', record.name, worktree.branch), 8000);
+		} else if (!readOnly) {
+			vscode.window.setStatusBarMessage(vscode.l10n.t('{0} works in {1}, which other agents share', record.name, directory), 8000);
+		}
 	}
 
 	/** Stops every agent that is working, including those with no chat turn to stop them from. */
@@ -293,6 +334,13 @@ export class DragonAgents implements vscode.Disposable {
 		const client: OpenCodeClient = await this.server.ensure();
 		await client.replyPermission(request.sessionID, request.id, decision).catch(err => this.log.warn(`[agents] permission reply failed: ${message(err)}`));
 	}
+}
+
+/** What a session started from a command runs as: the configured model, and the plan agent in Read-Only mode. */
+function sessionDefaults(): { readOnly: boolean; model: ReturnType<typeof parseModelRef> | undefined; agent: string } {
+	const readOnly = permissionMode() === 'read-only';
+	const configured = vscode.workspace.getConfiguration('dragon').get<string>('model')?.trim();
+	return { readOnly, model: configured ? parseModelRef(configured) : undefined, agent: readOnly ? 'plan' : 'build' };
 }
 
 /** The lead on the left, and `panes` groups for teammates in a grid on the right. */
