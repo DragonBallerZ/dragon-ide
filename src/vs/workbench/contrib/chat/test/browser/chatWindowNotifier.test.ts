@@ -14,11 +14,14 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import { mock } from '../../../../../base/test/common/mock.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { FocusMode } from '../../../../../platform/native/common/native.js';
+import { INotificationHandle, IPromptChoice, NoOpNotification, Severity } from '../../../../../platform/notification/common/notification.js';
+import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { IChatWidget, IChatWidgetService } from '../../browser/chat.js';
 import { ChatWindowNotifier } from '../../browser/chatWindowNotifier.js';
-import { IChatResponseErrorDetails, IChatService } from '../../common/chatService/chatService.js';
+import { IChatQuestionAnswers, IChatResponseErrorDetails, IChatService } from '../../common/chatService/chatService.js';
 import { ChatConfiguration, ChatNotificationMode } from '../../common/constants.js';
-import { IChatModel, IChatPendingRequest, IChatRequestModel, IChatRequestNeedsInputInfo, IChatResponseModel, IResponse } from '../../common/model/chatModel.js';
+import { IChatModel, IChatPendingRequest, IChatProgressResponseContent, IChatRequestModel, IChatRequestNeedsInputInfo, IChatResponseModel, IResponse } from '../../common/model/chatModel.js';
+import { ChatQuestionCarouselData } from '../../common/model/chatProgressTypes/chatQuestionCarouselData.js';
 import { IChatAgentResult } from '../../common/participants/chatAgents.js';
 import { IHostService, IToastOptions, IToastResult } from '../../../../services/host/browser/host.js';
 
@@ -43,6 +46,11 @@ class TestHostService extends mock<IHostService>() {
 
 class TestChatService extends mock<IChatService>() {
 	override readonly chatModels = observableValue<readonly IChatModel[]>('chatModels', []);
+	readonly carouselAnswers: { requestId: string; resolveId: string; answers: IChatQuestionAnswers | undefined }[] = [];
+
+	override notifyQuestionCarouselAnswer(requestId: string, resolveId: string, answers: IChatQuestionAnswers | undefined): void {
+		this.carouselAnswers.push({ requestId, resolveId, answers });
+	}
 
 	override getSession(sessionResource: URI): IChatModel | undefined {
 		return this.chatModels.get().find(model => model.sessionResource.toString() === sessionResource.toString());
@@ -50,17 +58,36 @@ class TestChatService extends mock<IChatService>() {
 }
 
 class TestChatWidgetService extends mock<IChatWidgetService>() {
-	readonly widget = new class extends mock<IChatWidget>() {
-		override readonly domNode = document.createElement('div');
-		override readonly visible = true;
-	};
+	readonly widget: IChatWidget;
+
+	constructor(visible = true) {
+		super();
+		this.widget = new class extends mock<IChatWidget>() {
+			override readonly domNode = document.createElement('div');
+			override readonly visible = visible;
+		};
+	}
 
 	override getWidgetBySessionResource(_sessionResource: URI): IChatWidget {
 		return this.widget;
 	}
 }
 
-function createModel(store: Pick<DisposableStore, 'add'>, id: string, options: { requestInProgress?: boolean; hasRequest?: boolean } = {}): {
+class TestPromptNotificationService extends TestNotificationService {
+	readonly prompts: { message: string; choices: IPromptChoice[]; closed: boolean }[] = [];
+
+	override prompt(_severity: Severity, message: string, choices: IPromptChoice[]): INotificationHandle {
+		const prompt = { message, choices, closed: false };
+		this.prompts.push(prompt);
+		return new class extends NoOpNotification {
+			override close(): void {
+				prompt.closed = true;
+			}
+		};
+	}
+}
+
+function createModel(store: Pick<DisposableStore, 'add'>, id: string, options: { requestInProgress?: boolean; hasRequest?: boolean; parts?: IChatProgressResponseContent[] } = {}): {
 	model: IChatModel;
 	requestInProgress: ReturnType<typeof observableValue<boolean>>;
 	requestNeedsInput: ReturnType<typeof observableValue<IChatRequestNeedsInputInfo | undefined>>;
@@ -76,10 +103,11 @@ function createModel(store: Pick<DisposableStore, 'add'>, id: string, options: {
 		override result: IChatAgentResult | undefined = undefined;
 		override completionTimestamp: number | undefined = undefined;
 		override readonly response = new class extends mock<IResponse>() {
-			override readonly value = [];
+			override readonly value = options.parts ?? [];
 		};
 	};
 	const lastRequest = options.hasRequest === false ? undefined : new class extends mock<IChatRequestModel>() {
+		override readonly id = `request-${id}`;
 		override readonly response = response;
 	};
 	const lastRequestObs = observableValue<IChatRequestModel | undefined>(`last-request-${id}`, lastRequest);
@@ -131,20 +159,40 @@ suite('ChatWindowNotifier', () => {
 		await timeout(0);
 	}
 
-	function createNotifier(model: IChatModel): TestHostService {
+	function createNotifierWith(model: IChatModel, options: { visible?: boolean; confirmation?: ChatNotificationMode } = {}) {
 		const chatService = new TestChatService();
 		chatService.chatModels.set([model], undefined);
 		const host = new TestHostService();
+		const notifications = new TestPromptNotificationService();
 		store.add(new TestChatWindowNotifier(
 			chatService,
-			new TestChatWidgetService(),
+			new TestChatWidgetService(options.visible),
 			host,
 			new TestConfigurationService({
 				[ChatConfiguration.NotifyWindowOnResponseReceived]: ChatNotificationMode.Always,
-				[ChatConfiguration.NotifyWindowOnConfirmation]: ChatNotificationMode.Always,
+				[ChatConfiguration.NotifyWindowOnConfirmation]: options.confirmation ?? ChatNotificationMode.Always,
 			}),
+			notifications,
 		));
-		return host;
+		return { chatService, host, notifications };
+	}
+
+	function createNotifier(model: IChatModel): TestHostService {
+		return createNotifierWith(model).host;
+	}
+
+	/** An approval card as the Dragon agent extension asks one: a single question with options. */
+	function approvalCard(): ChatQuestionCarouselData {
+		return new ChatQuestionCarouselData([{
+			id: 'decision',
+			type: 'singleSelect',
+			title: 'Allow this?',
+			message: 'OpenCode wants to run `ls -la`.',
+			options: [
+				{ id: 'once', label: 'Allow once', value: 'once' },
+				{ id: 'reject', label: 'Deny', value: 'reject' },
+			],
+		}], false, 'resolve-approval');
 	}
 
 	test('does not notify while a queued request remains', async () => {
@@ -229,5 +277,37 @@ suite('ChatWindowNotifier', () => {
 		assert.deepStrictEqual(host.toasts.map(toast => toast.dedupeKey), [
 			'chat-session:test:/needs-input:needsInput',
 		]);
+	});
+
+	test('a chat that needs input off screen asks in the window with its card\'s choices, and the prompt closes once it no longer does', async () => {
+		const card = approvalCard();
+		const { model, requestNeedsInput } = createModel(store, 'off-screen', { parts: [card] });
+		const { chatService, notifications } = createNotifierWith(model, { visible: false, confirmation: ChatNotificationMode.WindowNotFocused });
+
+		requestNeedsInput.set({ title: 'agent-2' }, undefined);
+		await flushNotifications();
+		const shown = notifications.prompts.map(prompt => ({ message: prompt.message, choices: prompt.choices.map(choice => choice.label), closed: prompt.closed }));
+		notifications.prompts[0]?.choices[0].run();
+		requestNeedsInput.set(undefined, undefined);
+
+		assert.deepStrictEqual({ shown, card: { isUsed: card.isUsed, data: card.data }, carouselAnswers: chatService.carouselAnswers, closed: notifications.prompts.map(prompt => prompt.closed) }, {
+			shown: [{ message: 'agent-2 asks: OpenCode wants to run `ls -la`. Allow this?', choices: ['Allow once', 'Deny', 'Show Chat'], closed: false }],
+			card: { isUsed: true, data: { decision: { selectedValue: 'once' } } },
+			carouselAnswers: [{ requestId: 'request-off-screen', resolveId: 'resolve-approval', answers: { decision: { selectedValue: 'once' } } }],
+			closed: [true],
+		});
+	});
+
+	test('a chat on screen, or one whose confirmations notify nothing, does not ask in the window', async () => {
+		const onScreen = createModel(store, 'on-screen', { parts: [approvalCard()] });
+		const onScreenNotifier = createNotifierWith(onScreen.model, { visible: true, confirmation: ChatNotificationMode.WindowNotFocused });
+		const off = createModel(store, 'off', { parts: [approvalCard()] });
+		const offNotifier = createNotifierWith(off.model, { visible: false, confirmation: ChatNotificationMode.Off });
+
+		onScreen.requestNeedsInput.set({ title: 'main' }, undefined);
+		off.requestNeedsInput.set({ title: 'agent' }, undefined);
+		await flushNotifications();
+
+		assert.deepStrictEqual([onScreenNotifier.notifications.prompts, offNotifier.notifications.prompts], [[], []]);
 	});
 });

@@ -55,6 +55,7 @@ export function toolInvocationToCardModel(
 		output: outputText,
 		status,
 		durationMs,
+		startedAt: status === 'running' ? options.startedAt : undefined,
 		errorMessage: getErrorMessage(invocation, reader),
 		command: terminalData?.commandLine.userEdited ?? terminalData?.commandLine.toolEdited ?? terminalData?.commandLine.original,
 		exitCode: terminalData?.terminalCommandState?.exitCode,

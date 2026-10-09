@@ -640,9 +640,11 @@ declare module 'vscode' {
 		 * This is a blocking call that waits for the user to submit or skip the questions.
 		 * @param questions Array of questions to display to the user
 		 * @param allowSkip Whether the user can skip questions without answering
+		 * @param token Cancel it when the questions were answered somewhere else: the carousel closes
+		 * as answered, and the promise resolves with undefined.
 		 * @returns A promise that resolves with the user's answers, or undefined if skipped
 		 */
-		questionCarousel(questions: ChatQuestion[], allowSkip?: boolean): Thenable<Record<string, unknown> | undefined>;
+		questionCarousel(questions: ChatQuestion[], allowSkip?: boolean, token?: CancellationToken): Thenable<Record<string, unknown> | undefined>;
 
 		/**
 		 * Push a warning to this stream. Short-hand for

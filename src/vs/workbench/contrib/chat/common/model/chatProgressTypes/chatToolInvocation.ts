@@ -227,6 +227,30 @@ export class ChatToolInvocation implements IChatToolInvocation {
 	}
 
 	/**
+	 * DRAGON: ends a tool that is still running as cancelled. An extension's tool reports its end
+	 * through the response, which takes nothing more once the response is cancelled.
+	 */
+	public cancelFromExecuting(): boolean {
+		const currentState = this._state.get();
+		if (currentState.type !== IChatToolInvocation.StateKind.Executing) {
+			return false;
+		}
+
+		// It keeps what it showed last rather than what it was first called.
+		const message = currentState.progress.get().message;
+		if (message) {
+			this.invocationMessage = message;
+		}
+		this._state.set({
+			type: IChatToolInvocation.StateKind.Cancelled,
+			reason: ToolConfirmKind.Skipped,
+			parameters: this.parameters,
+			confirmationMessages: this.confirmationMessages,
+		}, undefined);
+		return true;
+	}
+
+	/**
 	 * Transition from streaming state to prepared/executing state.
 	 * Called when the full tool call is ready.
 	 */

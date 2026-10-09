@@ -91,6 +91,8 @@ export type Settings = {
   auto: boolean
   buffer: number
   tokens: number
+  /** DRAGON: the fraction of the context window at which automatic compaction runs, at most the buffered ceiling. */
+  threshold: number
 }
 
 export type NativeInput = {
@@ -401,12 +403,13 @@ export const layer = Layer.effect(
 
     const state = State.create<Settings & { readonly native: NativeStrategy[] }, Editor>({
       name: "session-compaction",
-      initial: () => ({ auto: true, buffer: DEFAULT_BUFFER, tokens: DEFAULT_KEEP_TOKENS, native: [] }),
+      initial: () => ({ auto: true, buffer: DEFAULT_BUFFER, tokens: DEFAULT_KEEP_TOKENS, threshold: 1, native: [] }),
       editor: (editor) => ({
         configure: (settings) => {
           if (settings.auto !== undefined) editor.auto = settings.auto
           if (settings.buffer !== undefined) editor.buffer = settings.buffer
           if (settings.tokens !== undefined) editor.tokens = settings.tokens
+          if (settings.threshold !== undefined) editor.threshold = settings.threshold
         },
         native: (strategy) => {
           editor.native.push(strategy)
@@ -758,6 +761,8 @@ export const layer = Layer.effect(
       const promptCeiling = Math.min(
         limit.input === undefined ? Number.POSITIVE_INFINITY : limit.input - config.buffer,
         context - Math.max(output, config.buffer),
+        // DRAGON: compaction.threshold
+        Math.ceil(context * config.threshold),
       )
       return estimateTokens(input) >= promptCeiling
     }

@@ -285,6 +285,16 @@ it.effect("auto compaction estimates current content against the buffered prompt
       time: { created: 0, completed: 0 },
     })
     expect(compaction.required({ ...grown, messages: [checkpoint] })).toBe(false)
+
+    // DRAGON: a threshold compacts at that fraction of the context window, when it comes before the buffered ceiling.
+    yield* compaction.transform((editor) => editor.configure({ threshold: 0.5 }))
+    expect(compaction.required(input(49_999, contextLimited))).toBe(false)
+    expect(compaction.required(input(50_000, contextLimited))).toBe(true)
+    expect(compaction.required(input(199_999, inputLimited))).toBe(false)
+    expect(compaction.required(input(200_000, inputLimited))).toBe(true)
+    yield* compaction.transform((editor) => editor.configure({ threshold: 0.9 }))
+    expect(compaction.required(input(79_999, contextLimited))).toBe(false)
+    expect(compaction.required(input(80_000, contextLimited))).toBe(true)
   }),
 )
 

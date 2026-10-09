@@ -38,7 +38,9 @@ for (const provider of ['ollama', 'splash']) {
 			{ kind: 'tool', name: 'grep', args: { pattern: 'hello w[a-z]+' } },
 			{ kind: 'tool', name: 'codebase_search', args: { query: 'the greeting that says hello to the world' } },
 			{ kind: 'tool', name: 'edit', args: { path: 'hello.txt', oldString: 'hello world', newString: 'hello dragon' } },
-			{ kind: 'text', reasoning: ['Checking the edit.'], chunks: ['Changed ', 'hello.txt.'] },
+			// Slow, as Nemotron on OpenCode Zen is: OpenCode publishes the start of the answer before it
+			// reports the reasoning ended, and the rest after.
+			{ kind: 'text', reasoning: ['Checking the edit.'], chunks: ['Changed ', 'hello.txt.'], pause: 500 },
 		], MODEL, 0, { embedModel: 'mock-embed' });
 		const semanticConfig = path.join(home, 'semantic.json');
 		writeFileSync(semanticConfig, JSON.stringify({ enabled: true, model: 'mock-embed', origin: mock.origin }));
@@ -121,6 +123,9 @@ for (const provider of ['ollama', 'splash']) {
 			const edit = ops.find(op => op.kind === 'tool-done' && op.name === 'edit');
 			assert.ok(edit && edit.kind === 'tool-done' && edit.name === 'edit' && edit.files[0].file === 'hello.txt');
 			assert.equal(ops.filter(op => op.kind === 'text').map(op => op.kind === 'text' ? op.delta : '').join(''), 'Changed hello.txt.');
+			// The reasoning ends before the answer starts, so the chat does not fold the answer away with it.
+			const reply = ops.map(op => op.kind).filter(kind => kind === 'thinking' || kind === 'thinking-end' || kind === 'text');
+			assert.deepEqual(reply.filter((kind, i) => kind !== reply[i - 1]), ['thinking', 'thinking-end', 'text']);
 			assert.equal(readFileSync(path.join(workspace, 'hello.txt'), 'utf8'), 'hello dragon\n');
 
 			// "Continue in Chat" lists sessions from the same server, newest first.

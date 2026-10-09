@@ -387,6 +387,21 @@ describe("ConfigNormalize", () => {
     ])
   })
 
+  // DRAGON: compaction.threshold
+  test("decodes a compaction threshold as a fraction of the context window", () => {
+    const decoded = (threshold: unknown) => {
+      const result = normalized({ compaction: { threshold } })
+      return [result.encoded.compaction, result.diagnostics.map((item) => [item.kind, item.path])]
+    }
+    expect([0.75, 1, 0, 1.5, "75%"].map(decoded)).toEqual([
+      [{ threshold: 0.75 }, []],
+      [{ threshold: 1 }, []],
+      [undefined, [["invalid", ["compaction", "threshold"]]]],
+      [undefined, [["invalid", ["compaction", "threshold"]]]],
+      [undefined, [["invalid", ["compaction", "threshold"]]]],
+    ])
+  })
+
   test("distinguishes empty, mixed, and wholly malformed enabled provider lists", () => {
     expect(normalized({ enabled_providers: [] }).encoded.experimental).toEqual({
       policies: [{ action: "provider.use", resource: "*", effect: "deny" }],

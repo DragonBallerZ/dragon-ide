@@ -152,11 +152,10 @@ export class TerminalEditorInput extends EditorInput implements IEditorCloseHand
 		const instanceOnDidBlurListener = instance.onDidBlur(() => this._terminalEditorFocusContextKey.reset());
 
 		const disposeListeners = [
-			instance.onExit((e) => {
-				if (!instance.waitOnExit) {
-					this.dispose();
-				}
-			}),
+			// DRAGON: the editor closes when its terminal is disposed, as a terminal in the panel does.
+			// Closing it on `onExit`, which fires before the terminal handles its own exit, disposed the
+			// terminal as closed by the user: the exit reason was lost, and a terminal that failed to
+			// launch closed without saying so.
 			instance.onDisposed(() => this.dispose()),
 			instance.onTitleChanged(() => this._onDidChangeLabel.fire()),
 			instance.onIconChanged(() => this._onDidChangeLabel.fire()),
@@ -167,7 +166,7 @@ export class TerminalEditorInput extends EditorInput implements IEditorCloseHand
 
 		this._register(toDisposable(() => {
 			if (!this._isDetached && !this._isShuttingDown) {
-				// Will be ignored if triggered by onExit or onDisposed terminal events
+				// Will be ignored if triggered by the onDisposed terminal event
 				// as disposed was already called
 				instance.dispose(TerminalExitReason.User);
 			}

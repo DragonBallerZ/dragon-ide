@@ -68,6 +68,18 @@
 						"description": "Summarize the session to free up context"
 					},
 					{
+						"name": "autocompact",
+						"description": "Compact automatically once the context window is this full: /autocompact 60%, off or on"
+					},
+					{
+						"name": "team",
+						"description": "Lead a team: /team 4 starts four teammates that work on what this chat sends them"
+					},
+					{
+						"name": "create-agent",
+						"description": "Add a teammate for a role: /create-agent artist Draws the pixel-art sprites"
+					},
+					{
 						"name": "tui",
 						"description": "Open this session in the OpenCode TUI"
 					}
@@ -190,10 +202,28 @@
 				"category": "Dragon"
 			},
 			{
+				"command": "dragon.leadTeam",
+				"title": "Lead a Team",
+				"category": "Dragon",
+				"icon": "$(organization)"
+			},
+			{
 				"command": "dragon.newAgent",
 				"title": "New Agent",
 				"category": "Dragon",
 				"icon": "$(add)"
+			},
+			{
+				"command": "dragon.newAgentFromChatView",
+				"title": "New Agent",
+				"category": "Dragon",
+				"icon": "$(add)"
+			},
+			{
+				"command": "dragon.agents.mergeWorktree",
+				"title": "Merge Agent's Work and Remove Its Worktree",
+				"category": "Dragon",
+				"icon": "$(git-merge)"
 			},
 			{
 				"command": "dragon.agents.stopAll",
@@ -214,9 +244,14 @@
 					"group": "navigation@9"
 				},
 				{
-					"command": "dragon.newAgent",
+					"command": "dragon.newAgentFromChatView",
 					"when": "view == workbench.panel.chat.view.copilot",
 					"group": "navigation@0"
+				},
+				{
+					"command": "dragon.leadTeam",
+					"when": "view == workbench.panel.chat.view.copilot",
+					"group": "navigation@-0.5"
 				}
 			],
 			"editor/title": [
@@ -224,11 +259,20 @@
 					"command": "dragon.newAgent",
 					"when": "activeEditor == workbench.editor.chatSession",
 					"group": "navigation@1"
+				},
+				{
+					"command": "dragon.agents.mergeWorktree",
+					"when": "activeEditor == workbench.editor.chatSession",
+					"group": "navigation@2"
 				}
 			],
 			"commandPalette": [
 				{
 					"command": "dragon.continueInTui"
+				},
+				{
+					"command": "dragon.newAgentFromChatView",
+					"when": "false"
 				}
 			]
 		},
@@ -240,18 +284,31 @@
 					"default": "",
 					"markdownDescription": "Default model as `provider/model` (for example `ollama/qwen2.5-coder:7b` or `anthropic/claude-sonnet-5`). Used by the chat view and the OpenCode TUI. Leave empty to use OpenCode's own default."
 				},
+				"dragon.compaction.autoAt": {
+					"type": "integer",
+					"default": 75,
+					"minimum": 0,
+					"maximum": 100,
+					"markdownDescription": "Compact a conversation automatically once it fills this percentage of the model's context window. OpenCode compacts sooner when the model needs the rest for its reply. `0` turns automatic compaction off, also when a request no longer fits. The `/autocompact` chat command changes this."
+				},
 				"dragon.agents.maxWakes": {
 					"type": "integer",
 					"default": 25,
 					"minimum": 1,
 					"maximum": 200,
-					"description": "How many times other agents may start a turn for an agent before a person has to continue it. Your next message to the agent (or to its team's lead) resets the count."
+					"description": "How many times other agents may start a turn for an agent before a person has to continue it. Your next message to the agent, to its team's lead or to an agent that started one of its turns resets the count."
 				},
 				"dragon.agents.worktreesFolder": {
 					"type": "string",
 					"default": "",
 					"scope": "machine-overridable",
 					"markdownDescription": "The folder that **Dragon: New Agent** makes each agent's Git worktree in. Empty means `.dragon/worktrees` in your home folder."
+				},
+				"dragon.agents.sandbox": {
+					"type": "boolean",
+					"default": true,
+					"scope": "machine-overridable",
+					"markdownDescription": "Run agents' shell commands in a macOS sandbox that keeps them to the folders open in the window. They cannot read or change the rest of your home folder or other disks, open apps, or use the clipboard, the keychain, other apps' preferences or Unix sockets such as Docker's and ssh-agent's, and they get a home folder of their own. Applies when OpenCode next starts (**Dragon: Restart OpenCode**). Linux and Windows have no such sandbox."
 				},
 				"dragon.agents.maxTeammates": {
 					"type": "integer",
@@ -265,15 +322,17 @@
 					"enum": [
 						"read-only",
 						"ask",
+						"project",
 						"full-access"
 					],
 					"enumDescriptions": [
-						"OpenCode plans and answers but may not change files or run commands.",
-						"OpenCode asks in the chat before it edits files or runs commands.",
-						"OpenCode edits files and runs commands without asking."
+						"OpenCode plans and answers but may not change files or run commands; kept to the open project.",
+						"OpenCode asks in the chat before it edits files or runs commands; kept to the open project.",
+						"OpenCode edits files and runs commands without asking, but only inside the open project, never the rest of your disk.",
+						"OpenCode edits files and runs commands without asking, and can reach your whole disk."
 					],
 					"default": "ask",
-					"description": "How much OpenCode may do without asking. The chip in the chat composer cycles this setting."
+					"description": "How much OpenCode may do without asking, and whether it is kept to the open project. The chip in the chat composer cycles this setting."
 				},
 				"dragon.workingDirectory": {
 					"type": "string",
@@ -373,7 +432,7 @@
 					{
 						"id": "permissions",
 						"title": "Decide how much it may do",
-						"description": "Read-Only, Ask or Full Access. Switch with the chip in the chat composer.\n[Open the Setting](command:workbench.action.openSettings?%5B%22dragon.permissionMode%22%5D)",
+						"description": "Read-Only, Ask, Project Only or Full Access. Project Only lets agents work without asking but keeps them to the open project; Full Access reaches your whole disk. Switch with the chip in the chat composer.\n[Open the Setting](command:workbench.action.openSettings?%5B%22dragon.permissionMode%22%5D)",
 						"media": {
 							"markdown": "media/walkthrough/permissions.md"
 						},

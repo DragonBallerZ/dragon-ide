@@ -82,6 +82,28 @@ test('works for every provider shape OpenCode reports', () => {
 	assert.match(summarize({ model: claude, compacted: true }).context!.tooltip, /just compacted/);
 });
 
+test('the context tooltip says where the conversation compacts: at /autocompact\'s percentage, sooner when the reply needs the room, or not at all', () => {
+	const nemotron: UsageModel = { providerID: 'opencode', id: 'nemotron', name: 'Nemotron', limit: { context: 262_144, output: 32_768 } };
+	const local: UsageModel = { providerID: 'ollama', id: 'qwen', name: 'Qwen', limit: { context: 32_768, output: 8_192 } };
+	const inputLimited: UsageModel = { providerID: 'openai', id: 'gpt', name: 'GPT', limit: { context: 400_000, input: 272_000, output: 128_000 } };
+	const line = (model: UsageModel, autoAt?: number) => summarize({ model, autoAt }).context!.tooltip.split('\n').at(-1);
+	assert.deepEqual({
+		at75: line(nemotron, 75),
+		at100: line(nemotron, 100),
+		unset: line(nemotron),
+		local: line(local, 75),
+		inputLimited: line(inputLimited, 75),
+		off: line(nemotron, 0),
+	}, {
+		at75: 'Compacts automatically at 75% (197K tokens). /autocompact changes this.',
+		at100: 'Compacts automatically at 88% (230K tokens), keeping the rest free for the reply. /autocompact changes this.',
+		unset: 'Compacts automatically at 88% (230K tokens), keeping the rest free for the reply. /autocompact changes this.',
+		local: 'Compacts automatically at 39% (12.8K tokens), keeping the rest free for the reply. /autocompact changes this.',
+		inputLimited: 'Compacts automatically at 63% (252K tokens), keeping the rest free for the reply. /autocompact changes this.',
+		off: 'Automatic compaction is off: run /compact before the window fills up, or /autocompact on to turn it back on.',
+	});
+});
+
 function fakeClient() {
 	const calls: string[] = [];
 	let sessionTokens = tokens(100, 900);

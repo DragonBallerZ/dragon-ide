@@ -38,7 +38,7 @@ export interface UsageModel {
 	readonly id: string;
 	readonly name: string;
 	readonly cost?: readonly ModelCost[];
-	readonly limit?: { readonly context?: number; readonly input?: number };
+	readonly limit?: { readonly context?: number; readonly input?: number; readonly output?: number };
 }
 
 /** What the composer shows. Strings are ready to display; numbers are for tests and tooltips. */
@@ -57,6 +57,43 @@ export interface UsageSummary {
 }
 
 const LOCAL_PROVIDERS = new Set(['ollama', 'splash', 'lmstudio', 'llama.cpp']);
+
+/** OpenCode's defaults (`session/compaction.ts`): tokens kept free for the reply, and the most output it plans for. */
+const COMPACTION_BUFFER = 20_000;
+const COMPACTION_OUTPUT_MAX = 32_000;
+
+/**
+ * The prompt size at which OpenCode compacts automatically (its `SessionCompaction.required`): at
+ * `autoAt` percent of the window, or sooner when the room it keeps for the reply runs out first.
+ * Undefined when it never does: automatic compaction is off, or the window is not known.
+ */
+function compactionPoint(limit: UsageModel['limit'], autoAt = 100): number | undefined {
+	const context = limit?.context ?? 0;
+	if (autoAt <= 0 || context <= 0) {
+		return undefined;
+	}
+	const output = Math.min(limit?.output ?? 0, COMPACTION_OUTPUT_MAX);
+	return Math.max(0, Math.min(
+		limit?.input === undefined ? Number.POSITIVE_INFINITY : limit.input - COMPACTION_BUFFER,
+		context - Math.max(output, COMPACTION_BUFFER),
+		Math.ceil(context * autoAt / 100),
+	));
+}
+
+/** The tooltip's last line: where the conversation compacts. */
+function compactionLine(model: UsageModel, autoAt: number | undefined): string | undefined {
+	if (autoAt !== undefined && autoAt <= 0) {
+		return 'Automatic compaction is off: run /compact before the window fills up, or /autocompact on to turn it back on.';
+	}
+	const point = compactionPoint(model.limit, autoAt);
+	const context = model.limit?.context ?? 0;
+	if (point === undefined) {
+		return undefined;
+	}
+	const percent = Math.round(point * 100 / context);
+	const sooner = point < Math.ceil(context * (autoAt ?? 100) / 100) ? ', keeping the rest free for the reply' : '';
+	return `Compacts automatically at ${percent}% (${formatTokens(point)} tokens)${sooner}. /autocompact changes this.`;
+}
 
 /** Compact token count: 517 / 12.2K / 517K / 1.2M. */
 export function formatTokens(value: number): string {
@@ -203,7 +240,7 @@ function priceSummary(model: UsageModel): UsageSummary['price'] {
  * current context (undefined before the first reply or right after a compaction); `total` is
  * the session's running total; `cost` is what OpenCode recorded for the session in USD.
  */
-export function summarize(input: { model?: UsageModel; last?: TokenBuckets; total?: TokenBuckets; cost?: number; compacted?: boolean }): UsageSummary {
+export function summarize(input: { model?: UsageModel; last?: TokenBuckets; total?: TokenBuckets; cost?: number; compacted?: boolean; autoAt?: number }): UsageSummary {
 	const { model, last, total } = input;
 	const window = model?.limit?.context || model?.limit?.input || 0;
 	let context: UsageSummary['context'];
@@ -215,7 +252,8 @@ export function summarize(input: { model?: UsageModel; last?: TokenBuckets; tota
 			: input.compacted
 				? `The conversation was just compacted; the next reply measures it again. Window: ${formatTokens(window)} tokens.`
 				: `Nothing sent yet. Window: ${formatTokens(window)} tokens.`;
-		context = { used, window, percent, text: `${percent}%`, tooltip: `${percent}% of the context window used\n${detail}\nOpenCode compacts the conversation when it runs out of room.` };
+		const compaction = compactionLine(model!, input.autoAt);
+		context = { used, window, percent, text: `${percent}%`, tooltip: [`${percent}% of the context window used`, detail, ...(compaction ? [compaction] : [])].join('\n') };
 	}
 	let cache: UsageSummary['cache'];
 	// Only for providers that cache prompts: they report cache tokens, or price cache reads. For

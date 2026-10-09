@@ -1,0 +1,158 @@
+diff --git a/packages/core/src/config/normalize.ts b/packages/core/src/config/normalize.ts
+index 2805cc04..5adced8c 100644
+--- a/packages/core/src/config/normalize.ts
++++ b/packages/core/src/config/normalize.ts
+@@ -371,6 +371,16 @@ function normalizeCompaction(
+     : undefined
+   const buffer = prefer(legacyBuffer, nativeBuffer, ["compaction", "buffer"], diagnostics)
+   if (buffer !== undefined) result.buffer = buffer
++  // DRAGON: compaction.threshold
++  if (own(input.compaction, "threshold")) {
++    const value = decodeEncoded(
++      ConfigCompaction.Info.fields.threshold,
++      input.compaction.threshold,
++      ["compaction", "threshold"],
++      diagnostics,
++    )
++    if (value !== undefined) result.threshold = value
++  }
+   if (Object.keys(result).length || !Object.keys(input.compaction).length) encoded.compaction = result
+ }
+ 
+diff --git a/packages/core/src/config/plugin/compaction.ts b/packages/core/src/config/plugin/compaction.ts
+index 6788ca7d..672a8198 100644
+--- a/packages/core/src/config/plugin/compaction.ts
++++ b/packages/core/src/config/plugin/compaction.ts
+@@ -19,6 +19,8 @@ export const Plugin = define({
+           ...(entry.info.compaction.auto === undefined ? {} : { auto: entry.info.compaction.auto }),
+           ...(entry.info.compaction.buffer === undefined ? {} : { buffer: entry.info.compaction.buffer }),
+           ...(entry.info.compaction.keep?.tokens === undefined ? {} : { tokens: entry.info.compaction.keep.tokens }),
++          // DRAGON: compaction.threshold
++          ...(entry.info.compaction.threshold === undefined ? {} : { threshold: entry.info.compaction.threshold }),
+         })
+       }
+     })
+diff --git a/packages/core/src/session/compaction.ts b/packages/core/src/session/compaction.ts
+index fc9d1679..eb5cd7a2 100644
+--- a/packages/core/src/session/compaction.ts
++++ b/packages/core/src/session/compaction.ts
+@@ -91,6 +91,8 @@ export type Settings = {
+   auto: boolean
+   buffer: number
+   tokens: number
++  /** DRAGON: the fraction of the context window at which automatic compaction runs, at most the buffered ceiling. */
++  threshold: number
+ }
+ 
+ export type NativeInput = {
+@@ -401,12 +403,13 @@ export const layer = Layer.effect(
+ 
+     const state = State.create<Settings & { readonly native: NativeStrategy[] }, Editor>({
+       name: "session-compaction",
+-      initial: () => ({ auto: true, buffer: DEFAULT_BUFFER, tokens: DEFAULT_KEEP_TOKENS, native: [] }),
++      initial: () => ({ auto: true, buffer: DEFAULT_BUFFER, tokens: DEFAULT_KEEP_TOKENS, threshold: 1, native: [] }),
+       editor: (editor) => ({
+         configure: (settings) => {
+           if (settings.auto !== undefined) editor.auto = settings.auto
+           if (settings.buffer !== undefined) editor.buffer = settings.buffer
+           if (settings.tokens !== undefined) editor.tokens = settings.tokens
++          if (settings.threshold !== undefined) editor.threshold = settings.threshold
+         },
+         native: (strategy) => {
+           editor.native.push(strategy)
+@@ -758,6 +761,8 @@ export const layer = Layer.effect(
+       const promptCeiling = Math.min(
+         limit.input === undefined ? Number.POSITIVE_INFINITY : limit.input - config.buffer,
+         context - Math.max(output, config.buffer),
++        // DRAGON: compaction.threshold
++        Math.ceil(context * config.threshold),
+       )
+       return estimateTokens(input) >= promptCeiling
+     }
+diff --git a/packages/core/test/config/compaction.test.ts b/packages/core/test/config/compaction.test.ts
+index e292f942..b6af3a30 100644
+--- a/packages/core/test/config/compaction.test.ts
++++ b/packages/core/test/config/compaction.test.ts
+@@ -122,6 +122,23 @@ describe("ConfigCompactionPlugin.Plugin", () => {
+       })
+       expect(compaction.required(bufferedInput)).toBe(false)
+ 
++      // DRAGON: compaction.threshold reaches the compaction settings.
++      yield* config.setEntries([
++        new Document({
++          type: "document",
++          info: new Info({ compaction: new ConfigCompaction.Info({ auto: true, buffer: 10_000, threshold: 0.5 }) }),
++        }),
++      ])
++      yield* bus.publish(Event.Updated, {})
++      yield* Effect.gen(function* () {
++        for (let attempt = 0; attempt < 200; attempt++) {
++          if (compaction.required(input(50_000))) return
++          yield* Effect.sleep("10 millis")
++        }
++        yield* Effect.die(new Error("Timed out waiting for the compaction threshold"))
++      })
++      expect(compaction.required(input(49_999))).toBe(false)
++
+       yield* config.setEntries([
+         new Document({
+           type: "document",
+diff --git a/packages/core/test/config/normalization.test.ts b/packages/core/test/config/normalization.test.ts
+index 28702520..64c2af75 100644
+--- a/packages/core/test/config/normalization.test.ts
++++ b/packages/core/test/config/normalization.test.ts
+@@ -387,6 +387,21 @@ describe("ConfigNormalize", () => {
+     ])
+   })
+ 
++  // DRAGON: compaction.threshold
++  test("decodes a compaction threshold as a fraction of the context window", () => {
++    const decoded = (threshold: unknown) => {
++      const result = normalized({ compaction: { threshold } })
++      return [result.encoded.compaction, result.diagnostics.map((item) => [item.kind, item.path])]
++    }
++    expect([0.75, 1, 0, 1.5, "75%"].map(decoded)).toEqual([
++      [{ threshold: 0.75 }, []],
++      [{ threshold: 1 }, []],
++      [undefined, [["invalid", ["compaction", "threshold"]]]],
++      [undefined, [["invalid", ["compaction", "threshold"]]]],
++      [undefined, [["invalid", ["compaction", "threshold"]]]],
++    ])
++  })
++
+   test("distinguishes empty, mixed, and wholly malformed enabled provider lists", () => {
+     expect(normalized({ enabled_providers: [] }).encoded.experimental).toEqual({
+       policies: [{ action: "provider.use", resource: "*", effect: "deny" }],
+diff --git a/packages/core/test/session-compaction.test.ts b/packages/core/test/session-compaction.test.ts
+index 18a020b7..133010a1 100644
+--- a/packages/core/test/session-compaction.test.ts
++++ b/packages/core/test/session-compaction.test.ts
+@@ -285,6 +285,16 @@ it.effect("auto compaction estimates current content against the buffered prompt
+       time: { created: 0, completed: 0 },
+     })
+     expect(compaction.required({ ...grown, messages: [checkpoint] })).toBe(false)
++
++    // DRAGON: a threshold compacts at that fraction of the context window, when it comes before the buffered ceiling.
++    yield* compaction.transform((editor) => editor.configure({ threshold: 0.5 }))
++    expect(compaction.required(input(49_999, contextLimited))).toBe(false)
++    expect(compaction.required(input(50_000, contextLimited))).toBe(true)
++    expect(compaction.required(input(199_999, inputLimited))).toBe(false)
++    expect(compaction.required(input(200_000, inputLimited))).toBe(true)
++    yield* compaction.transform((editor) => editor.configure({ threshold: 0.9 }))
++    expect(compaction.required(input(79_999, contextLimited))).toBe(false)
++    expect(compaction.required(input(80_000, contextLimited))).toBe(true)
+   }),
+ )
+ 
+diff --git a/packages/schema/src/config/compaction.ts b/packages/schema/src/config/compaction.ts
+index 7661e57d..56749ad9 100644
+--- a/packages/schema/src/config/compaction.ts
++++ b/packages/schema/src/config/compaction.ts
+@@ -11,4 +11,7 @@ export class Info extends Schema.Class<Info>("Config.Compaction")({
+   auto: Schema.Boolean.pipe(optional),
+   keep: Keep.pipe(optional),
+   buffer: NonNegativeInt.pipe(optional),
++  // DRAGON: compact once the prompt reaches this fraction of the model's context window, when that comes
++  // before the buffered ceiling. 1 leaves the ceiling as it is.
++  threshold: Schema.Finite.check(Schema.isGreaterThan(0)).check(Schema.isLessThanOrEqualTo(1)).pipe(optional),
+ }) {}

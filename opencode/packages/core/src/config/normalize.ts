@@ -371,6 +371,16 @@ function normalizeCompaction(
     : undefined
   const buffer = prefer(legacyBuffer, nativeBuffer, ["compaction", "buffer"], diagnostics)
   if (buffer !== undefined) result.buffer = buffer
+  // DRAGON: compaction.threshold
+  if (own(input.compaction, "threshold")) {
+    const value = decodeEncoded(
+      ConfigCompaction.Info.fields.threshold,
+      input.compaction.threshold,
+      ["compaction", "threshold"],
+      diagnostics,
+    )
+    if (value !== undefined) result.threshold = value
+  }
   if (Object.keys(result).length || !Object.keys(input.compaction).length) encoded.compaction = result
 }
 

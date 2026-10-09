@@ -2736,7 +2736,9 @@ ${this.hookCount > 0 ? `EXAMPLES WITH BLOCKED CONTENT (from hooks):
 			return false;
 		}
 		if (_element.isComplete) {
-			return true;
+			// DRAGON: text that reached this block after the last progressive render is drawn by the render at
+			// completion; otherwise a block that ends with the response (a compaction summary) stays cut off.
+			return this.isToolChain || other.kind !== 'thinking' || other.id !== this.id || !extractTextFromPart(other) || extractTextFromPart(other) === extractTextFromPart(this.content);
 		}
 
 		if (other.kind === 'toolInvocation' || other.kind === 'toolInvocationSerialized' || other.kind === 'markdownContent' || other.kind === 'hook') {

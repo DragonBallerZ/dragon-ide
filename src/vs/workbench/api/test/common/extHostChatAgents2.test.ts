@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { DeferredPromise } from '../../../../base/common/async.js';
-import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
@@ -15,7 +15,7 @@ import { nullExtensionDescription } from '../../../services/extensions/common/ex
 import { ChatAgentResponseStream } from '../../common/extHostChatAgents2.js';
 import { CommandsConverter } from '../../common/extHostCommands.js';
 import { IChatAgentProgressShape, IChatProgressDto } from '../../common/extHost.protocol.js';
-import { ChatResponseAnchorPart } from '../../common/extHostTypes.js';
+import { ChatQuestion, ChatQuestionType, ChatResponseAnchorPart } from '../../common/extHostTypes.js';
 
 suite('ExtHostChatAgents2', function () {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
@@ -68,5 +68,55 @@ suite('ExtHostChatAgents2', function () {
 		assert.strictEqual(progressChunk.kind, 'inlineReference');
 		assert.ok(progressChunk.resolveId);
 		assert.strictEqual(resolvedHandle, progressChunk.resolveId);
+	});
+
+	test('a question carousel whose token is cancelled is sent again as answered elsewhere, and resolves with no answer', async function () {
+		const sessionDisposables = disposables.add(new DisposableStore());
+		const progressChunks: IChatProgressDto[] = [];
+		const proxy: IChatAgentProgressShape = {
+			async $handleProgressChunk(_requestId, chunks) {
+				for (const chunk of chunks) {
+					progressChunks.push(Array.isArray(chunk) ? chunk[0] : chunk);
+				}
+			},
+			$handleAnchorResolve() { }
+		};
+		const request: IChatAgentRequest = {
+			sessionResource: URI.parse('chat-session:/test'),
+			requestId: 'requestId',
+			agentId: 'agentId',
+			message: '',
+			variables: { variables: [] },
+			location: ChatAgentLocation.Chat
+		};
+		const resolvers = new Map<string, Map<string, DeferredPromise<Record<string, unknown> | undefined>>>();
+		const stream = new ChatAgentResponseStream(
+			{ ...nullExtensionDescription, enabledApiProposals: ['chatParticipantAdditions'] },
+			request,
+			proxy,
+			undefined as unknown as CommandsConverter,
+			sessionDisposables,
+			resolvers,
+			CancellationToken.None
+		);
+		const settled = disposables.add(new CancellationTokenSource());
+
+		const answer = stream.apiObject.questionCarousel([new ChatQuestion('decision', ChatQuestionType.SingleSelect, 'Allow this?')], false, settled.token);
+		await Promise.resolve();
+		settled.cancel();
+
+		const answered = await answer;
+		const shown = progressChunks.map(chunk => chunk.kind === 'questionCarousel' ? chunk : undefined);
+		assert.deepStrictEqual({
+			answer: answered,
+			sent: shown.map(chunk => chunk && { isUsed: chunk.isUsed, answeredExternally: chunk.answeredExternally }),
+			sameCarousel: shown.length === 2 && shown[0]?.resolveId === shown[1]?.resolveId,
+			waiting: resolvers.get('requestId')?.size,
+		}, {
+			answer: undefined,
+			sent: [{ isUsed: undefined, answeredExternally: undefined }, { isUsed: true, answeredExternally: true }],
+			sameCarousel: true,
+			waiting: 0,
+		});
 	});
 });

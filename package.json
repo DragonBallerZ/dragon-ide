@@ -96,7 +96,9 @@
     "dragon:smoke-usage": "node scripts/dragon/smoke-usage.mts",
     "dragon:smoke-onboarding": "node scripts/dragon/smoke-onboarding.mts",
     "dragon:smoke-modes": "node scripts/dragon/smoke-modes.mts",
-    "dragon:smoke-agents": "node scripts/dragon/smoke-agents.mts"
+    "dragon:smoke-agents": "node scripts/dragon/smoke-agents.mts",
+    "dragon:smoke-turns": "node scripts/dragon/smoke-turns.mts",
+    "dragon:smoke-team-demo": "node scripts/dragon/smoke-team-demo.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",

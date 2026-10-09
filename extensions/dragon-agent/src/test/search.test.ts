@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { SearchEngine, unindexableRoot } from '../search/engine';
+import { relativeTo } from '../search/opencodePlugin';
 import { fuzzyScore, globToRegExp } from '../search/fuzzy';
 import { TrigramIndex } from '../search/index';
 import { planLiteral, planRegex, Query } from '../search/planner';
@@ -420,6 +421,15 @@ test('Instant Grep returns exactly what ripgrep returns', { skip: !rg && 'ripgre
 	}
 });
 
+
+test('Instant Grep\'s path argument stays inside the workspace', () => {
+	const root = path.join(tmpdir(), 'game');
+	const outside = (value: string) => { try { return relativeTo(root, value); } catch (err) { return `refused: ${(err as Error).message.split(' is outside')[0]}`; } };
+	assert.deepEqual(['src/', './src', path.join(root, 'src'), root, '.', 'src/../lib', '..', '../other', path.join(root, '..', 'game2'), path.dirname(root), '/'].map(outside), [
+		'src', 'src', 'src', undefined, undefined, 'lib',
+		'refused: ..', 'refused: ../other', `refused: ${path.join(root, '..', 'game2')}`, `refused: ${path.dirname(root)}`, 'refused: /',
+	]);
+});
 
 test('index refuses account roots, ancestors and filesystem roots', async () => {
 	assert.ok(unindexableRoot('/Users/me', '/Users/me'));

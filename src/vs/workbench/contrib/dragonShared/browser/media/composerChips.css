@@ -55,6 +55,7 @@
 
 .dragon-permission-readonly { color: #7be0a3; }
 .dragon-permission-ask { color: #ffd166; }
+.dragon-permission-project { color: #4ec9b0; }
 .dragon-permission-full { color: #ff6b6b; }
 
 /* Messages between agents: off is as quiet as the directory chip, on and muted stand out. */

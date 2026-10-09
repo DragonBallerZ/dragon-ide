@@ -14,6 +14,7 @@ run({
 		'extension': path.join(srcDir, 'extension.ts'),
 		'opencodePlugin': path.join(srcDir, 'search', 'opencodePlugin.ts'),
 		'agentsPlugin': path.join(srcDir, 'agents', 'opencodePlugin.ts'),
+		'sandboxPlugin': path.join(srcDir, 'sandbox', 'opencodePlugin.ts'),
 	},
 	srcDir,
 	outdir: outDir,

@@ -155,3 +155,36 @@ export function describePermission(action: string, resources: readonly string[])
 			return resources.length ? `OpenCode wants permission for ${code(action)} on ${list}.` : `OpenCode wants permission for ${code(action)}.`;
 	}
 }
+
+/** How long OpenCode lets a command run in the foreground (`DEFAULT_TIMEOUT_MS` in `opencode/packages/core/src/tool/plugin/shell.ts`). */
+const SHELL_TIMEOUT_MS = 2 * 60 * 1000;
+
+/** How long a shell call may run before OpenCode stops it, in milliseconds, or 0 for no limit. */
+export function shellTimeout(input: Record<string, unknown>): number {
+	const timeout = input.timeout;
+	if (typeof timeout === 'number' && Number.isInteger(timeout) && timeout >= 0) {
+		return timeout;
+	}
+	return input.background === true ? 0 : SHELL_TIMEOUT_MS;
+}
+
+/** A duration such as "5s", "1m 30s" or "1h 2m". */
+function formatDuration(ms: number): string {
+	const seconds = Math.floor(ms / 1000);
+	const [hours, minutes, rest] = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60];
+	const parts = hours ? [`${hours}h`, minutes ? `${minutes}m` : ''] : minutes ? [`${minutes}m`, rest ? `${rest}s` : ''] : [`${rest}s`];
+	return parts.filter(Boolean).join(' ');
+}
+
+/** The last line a command printed, without terminal colors, and of a line a progress bar rewrote only what it shows last. */
+export function lastOutputLine(output: string): string | undefined {
+	const lines = output.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').split('\n').map(line => line.split('\r').filter(part => part.trim()).at(-1)?.trim() ?? '');
+	return lines.filter(Boolean).at(-1);
+}
+
+/** The line for a command that is still running, e.g. "Running `npm test` — 1m 5s of its 2m timeout · `PASS src/a.test.ts`". */
+export function runningCommandMessage(running: string, elapsedMs: number, timeoutMs: number, output: string): string {
+	const time = timeoutMs ? `${formatDuration(elapsedMs)} of its ${formatDuration(timeoutMs)} timeout` : `${formatDuration(elapsedMs)}, no timeout`;
+	const line = lastOutputLine(output);
+	return `${running} — ${time}${line ? ` · ${code(truncate(line))}` : ''}`;
+}

@@ -55,6 +55,17 @@
 	color: var(--vscode-descriptionForeground, #888);
 }
 
+.dragon-tool-card-elapsed {
+	flex: 0 0 auto;
+	font-size: 10.5px;
+	font-variant-numeric: tabular-nums;
+	color: var(--vscode-descriptionForeground, #888);
+}
+
+.dragon-tool-card-elapsed:empty {
+	display: none;
+}
+
 .dragon-tool-card-meta {
 	display: flex;
 	flex-wrap: wrap;

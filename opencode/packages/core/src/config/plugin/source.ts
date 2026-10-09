@@ -119,6 +119,17 @@ function parse(input: ConfigPlugin.Plugin): Operation {
   return { type: "remove", target: input.slice(1) }
 }
 
+// DRAGON: the plugin directories Dragon IDE trusts to run in-process, as it passes them in the
+// server environment. Empty (or absent) when the window is not confined, or on an older Dragon.
+function dragonTrustedPlugins(): string[] {
+  try {
+    const value: unknown = JSON.parse(process.env.DRAGON_TRUSTED_PLUGINS ?? "[]")
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+  } catch {
+    return []
+  }
+}
+
 const scan = Effect.fn("ConfigPluginSource.scan")(function* (
   fs: FSUtil.Interface,
   location: Location.Interface,
@@ -155,8 +166,30 @@ const scan = Effect.fn("ConfigPluginSource.scan")(function* (
       return Option.some<Operation>(operation)
     }),
   ).pipe(Effect.map((operations) => operations.flatMap(Option.toArray)))
+  // DRAGON: under a confined window, a project must not run code that reaches outside the open
+  // folders. In-process plugins cannot be sandboxed as agents' shell commands, MCP servers and
+  // formatters are, so only Dragon's own plugins (the directories it marks trusted) are loaded; a
+  // project's `.opencode/plugin[s]` and its own configured plugins, and any remove that would turn
+  // another plugin off, are dropped. The gate stays off without a trusted list — in Full Access,
+  // which passes none, and on an older Dragon — so it can never unload Dragon's own sandbox plugin.
+  const trusted = dragonTrustedPlugins()
+  const confined = !!process.env.DRAGON_CONFINED_FOLDERS && trusted.length > 0
+  const resolvedTrusted = confined
+    ? yield* Effect.forEach(trusted, (dir) => fs.resolve(dir).pipe(Effect.orElseSucceed(() => dir)))
+    : []
+  const admitted = confined
+    ? yield* Effect.forEach([...discovered, ...resolved], (operation) =>
+        Effect.gen(function* () {
+          if (operation.type === "remove" || !path.isAbsolute(operation.target)) return []
+          const target = yield* fs.resolve(operation.target).pipe(Effect.orElseSucceed(() => operation.target))
+          if (resolvedTrusted.some((dir) => target === dir || FSUtil.contains(dir, target))) return [operation]
+          yield* Effect.logInfo("dragon: a project plugin is not loaded in a confined window", { target: operation.target })
+          return []
+        }),
+      ).pipe(Effect.map((operations) => operations.flat()))
+    : [...discovered, ...resolved]
   // Explicit config is applied last so it can remove auto-discovered packages.
-  return yield* Effect.forEach([...discovered, ...resolved], (operation) =>
+  return yield* Effect.forEach(admitted, (operation) =>
     Effect.gen(function* () {
       if (operation.type === "remove" || !path.isAbsolute(operation.target)) return [operation]
       if (!(yield* fs.existsSafe(operation.target))) return [operation]

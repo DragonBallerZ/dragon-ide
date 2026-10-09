@@ -13,8 +13,11 @@
 //   5. A teammate whose chat was closed is still woken by a message, and its command is approved (Full Access)
 //   6. In Ask mode that teammate's command waits for Allow Once in a notification
 //   7. After a window reload the lead still leads, and the stopped teammate is still stopped
-//   8. The Messages chip in another chat cycles Off, On, Muted
-//   9. The plus in a chat's title opens a new agent in a Git worktree and branch of its own
+//   8. The Messages chip in another chat starts On, as every open chat's does, and cycles On, Muted, Off
+//   9. The plus in the lead's title adds a teammate to its team, in the team's folder
+//  10. The plus in the title of a chat on no team opens a new agent in a Git worktree and branch of its own
+//  11. Merge Agent's Work and Remove Its Worktree brings that agent's file into the open folder
+//  12. In Ask mode a teammate whose chat is open in a tab behind another asks in a notification, and Allow once there runs its command
 // It also checks what the model was sent: who is the lead, and who a message is from.
 //
 // Usage: node scripts/dragon/smoke-agents.mts [--app <packaged app dir>] [--out <dir>]
@@ -113,6 +116,8 @@ const mock = await startMockOllama([say('No scenario.')], MODEL, 0, {
 		touch: [{ kind: 'tool', name: 'shell', args: { command: `node -e "require('fs').writeFileSync('closed.txt', '')"` } }, say('Touched.')],
 		asked: [{ kind: 'tool', name: 'send_message', args: { to: 'builder', message: '[[mock:touch2]] Create asked.txt.' } }, { kind: 'tool', name: 'wait_agent', args: { agent: 'builder', timeoutSeconds: 60 } }, say('Asked task done.')],
 		touch2: [{ kind: 'tool', name: 'shell', args: { command: `node -e "require('fs').writeFileSync('asked.txt', '')"` } }, say('Touched again.')],
+		behind: [{ kind: 'tool', name: 'send_message', args: { to: 'teammate-1', message: '[[mock:touch3]] Create behind.txt.' } }, { kind: 'tool', name: 'wait_agent', args: { agent: 'teammate-1', timeoutSeconds: 60 } }, say('Behind-tab task done.')],
+		touch3: [{ kind: 'tool', name: 'shell', args: { command: `node -e "require('fs').writeFileSync('behind.txt', '')"` } }, say('Touched a third time.')],
 		reloaded: [{ kind: 'tool', name: 'send_message', args: { to: 'scout', message: 'Are you there after the reload?' } }, say('Reload nudge sent.')],
 		own: [{ kind: 'tool', name: 'shell', args: { command: `node -e "require('fs').writeFileSync('own.txt', '')"` } }, say('Own file written.')],
 		nudge: [{ kind: 'tool', name: 'send_message', args: { to: 'scout', message: 'Carry on with the next file.' } }, say('Nudge sent.')],
@@ -146,7 +151,7 @@ fs.writeFileSync(path.join(userData, 'User', 'settings.json'), JSON.stringify({
 }, null, '\t'));
 
 // New Agent makes worktrees of the workspace's repository, at its current commit.
-for (const command of [['init', '--quiet'], ['add', '.'], ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.com', 'commit', '--quiet', '-m', 'start']]) {
+for (const command of [['init', '--quiet'], ['config', 'user.name', 'Smoke'], ['config', 'user.email', 'smoke@example.com'], ['add', '.'], ['commit', '--quiet', '-m', 'start']]) {
 	const result = spawnSync('git', command, { cwd: workspace, encoding: 'utf8' });
 	if (result.status !== 0) {
 		throw new Error(`git ${command.join(' ')} failed: ${result.stderr || result.error?.message}`);
@@ -346,6 +351,12 @@ try {
 		await win.keyboard.press('Enter');
 		const toast = win.locator('.notifications-toasts .notification-toast', { hasText: 'Agent "builder" asks' });
 		await toast.waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		// One notification asks: the window's prompt for a chat off screen, 250 ms later, is not a second.
+		await win.waitForTimeout(2_000);
+		const asking = await win.locator('.notifications-toasts .notification-toast', { hasText: ' asks' }).allInnerTexts();
+		if (asking.length !== 1) {
+			throw new Error(`${asking.length} notifications asked for the builder's command: ${JSON.stringify(asking)}`);
+		}
 		if (fs.existsSync(path.join(workspace, 'asked.txt'))) {
 			throw new Error('the command ran before it was allowed');
 		}
@@ -398,7 +409,7 @@ try {
 		await shot(win, 'after-reload');
 	});
 
-	await step(win, 'the Messages chip in another chat cycles Off, On, Muted', async () => {
+	await step(win, 'the Messages chip in another chat starts On, and cycles On, Muted, Off', async () => {
 		await runCommand(win, 'Chat: Open Chat');
 		const panel = win.locator('.part.auxiliarybar, .part.panel, .part.sidebar').filter({ has: win.locator(INPUT) }).first();
 		const messages = chip(panel);
@@ -409,28 +420,52 @@ try {
 			await messages.click();
 			await win.waitForFunction(previous => [...document.querySelectorAll('.part.auxiliarybar .dragon-messaging-toggle, .part.panel .dragon-messaging-toggle, .part.sidebar .dragon-messaging-toggle')].some(el => el.getAttribute('class') !== previous), before, { timeout: STEP_TIMEOUT });
 		}
-		if (seen.join(',') !== 'off,on,muted') {
+		if (seen.join(',') !== 'on,muted,off') {
 			throw new Error(`the chip went through ${seen.join(', ')}`);
 		}
 		await shot(win, 'messages-chip');
 	});
 
-	await step(win, 'the plus in a chat\'s title opens a new agent in a Git worktree and branch of its own', async () => {
+	await step(win, 'the plus in the lead\'s title adds a teammate to its team, in the team\'s folder', async () => {
 		const lead = groups.first();
 		// A group shows its title buttons while it is the active one.
 		await lead.locator(INPUT).click();
 		await lead.locator('.title .editor-actions').getByRole('button', { name: /^New Agent/ }).click({ timeout: STEP_TIMEOUT });
-		await lead.locator('.tabs-container .tab', { hasText: 'agent-1' }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
-		await chip(lead).and(win.locator('.dragon-messaging-on')).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		const teammate = win.locator('.editor-group-container').filter({ has: win.locator('.tab.active', { hasText: 'teammate-1' }) }).first();
+		await teammate.waitFor({ state: 'visible', timeout: STEP_TIMEOUT }).catch(async () => {
+			throw new Error(`the plus opened no pane for teammate-1; the tabs read ${JSON.stringify(await win.locator('.tab').allInnerTexts())}`);
+		});
+		await chip(teammate).and(win.locator('.dragon-messaging-on')).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		// The folder chip names the folder the window has open, which the team shares.
+		await teammate.locator('.interactive-input-part .dragon-directory-toggle', { hasText: path.basename(workspace) }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		const found = {
+			worktrees: fs.existsSync(worktrees) ? fs.readdirSync(worktrees).flatMap(repo => fs.readdirSync(path.join(worktrees, repo))) : [],
+			branches: spawnSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads/dragon'], { cwd: workspace, encoding: 'utf8' }).stdout.trim(),
+		};
+		if (JSON.stringify(found) !== JSON.stringify({ worktrees: [], branches: '' })) {
+			throw new Error(`the lead's new teammate got a worktree of its own: ${JSON.stringify(found)}`);
+		}
+		await shot(win, 'new-agent-teammate');
+	});
+
+	await step(win, 'the plus in the title of a chat on no team opens a new agent in a Git worktree and branch of its own', async () => {
+		// The side bar's chat, which has sent nothing, is on no team.
+		await win.locator('.part.auxiliarybar, .part.panel, .part.sidebar').filter({ has: win.locator(INPUT) }).first().locator('.composite.title')
+			.getByRole('button', { name: 'New Agent', exact: true }).click({ timeout: STEP_TIMEOUT });
+		const agent = win.locator('.editor-group-container').filter({ has: win.locator('.tab.active', { hasText: 'agent-1' }) }).first();
+		await agent.waitFor({ state: 'visible', timeout: STEP_TIMEOUT }).catch(async () => {
+			throw new Error(`the plus opened no pane for agent-1; the tabs read ${JSON.stringify(await win.locator('.tab').allInnerTexts())}`);
+		});
+		await chip(agent).and(win.locator('.dragon-messaging-on')).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
 		// The folder chip names this chat's worktree, not the folder the window has open.
-		await lead.locator('.interactive-input-part .dragon-directory-toggle', { hasText: 'agent-1' }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
-		await lead.locator(INPUT).click();
+		await agent.locator('.interactive-input-part .dragon-directory-toggle', { hasText: 'agent-1' }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await agent.locator(INPUT).click();
 		await win.keyboard.insertText('[[mock:own]] Create own.txt.');
 		await win.keyboard.press('Enter');
 		// The mode is still Ask, so the agent's command is asked about in its own chat.
-		await lead.locator('.interactive-session').getByRole('button', { name: 'Submit' }).click({ timeout: STEP_TIMEOUT });
-		await lead.locator('.interactive-item-container.interactive-response .rendered-markdown', { hasText: 'Own file written.' }).first().waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
-		await idle(lead);
+		await agent.locator('.interactive-session').getByRole('button', { name: 'Submit' }).click({ timeout: STEP_TIMEOUT });
+		await agent.locator('.interactive-item-container.interactive-response .rendered-markdown', { hasText: 'Own file written.' }).first().waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await idle(agent);
 		const roots = fs.existsSync(worktrees) ? fs.readdirSync(worktrees).map(repo => path.join(worktrees, repo, 'agent-1')) : [];
 		const listed = spawnSync('git', ['worktree', 'list', '--porcelain'], { cwd: workspace, encoding: 'utf8' }).stdout;
 		const found = {
@@ -443,7 +478,70 @@ try {
 		if (JSON.stringify(found) !== JSON.stringify({ inWorktree: true, inWorkspace: false, branch: true, committedFile: true, told: true })) {
 			throw new Error(`the new agent did not work in a worktree of its own: ${JSON.stringify(found)}`);
 		}
+		// The chat that opened it is told the agent's files reach the open folder only when the user merges them.
+		const panel = win.locator('.part.auxiliarybar, .part.panel, .part.sidebar').filter({ has: win.locator(INPUT) }).first();
+		await panel.locator(INPUT).click();
+		await win.keyboard.insertText('Where does agent-1 work?');
+		await win.keyboard.press('Enter');
+		await panel.locator('.interactive-item-container.interactive-response .rendered-markdown', { hasText: 'No scenario.' }).first().waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		const asked = mock.requests.filter(r => r.path.startsWith('/v1/chat/completions') && JSON.stringify(r.body).includes('Where does agent-1 work?')).map(r => JSON.stringify(r.body)).at(-1) ?? '';
+		const line = `- agent-1: idle; works in its own Git worktree, ${roots[0]}, on the branch dragon/agent-1: its files reach your folder only when the user merges its work with Merge Agent's Work and Remove Its Worktree`;
+		if (!asked.includes(JSON.stringify(line).slice(1, -1))) {
+			throw new Error(`the side bar's chat was not told agent-1's files reach its folder only on a merge; its request read ${JSON.stringify(/- agent-1:.{0,300}/.exec(asked)?.[0])}`);
+		}
 		await shot(win, 'new-agent-worktree');
+	});
+
+	await step(win, 'Merge Agent\'s Work and Remove Its Worktree brings the agent\'s file into the open folder', async () => {
+		await runCommand(win, 'Dragon: Merge Agent\'s Work and Remove Its Worktree');
+		await win.locator('.quick-input-widget .monaco-list-row', { hasText: 'agent-1' }).first().click({ timeout: STEP_TIMEOUT });
+		await win.locator('.monaco-dialog-box').getByRole('button', { name: 'Merge and Remove' }).click({ timeout: STEP_TIMEOUT });
+		await win.locator('.notifications-toasts .notification-toast', { hasText: 'removed its worktree' }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		const found = {
+			inWorkspace: fs.existsSync(path.join(workspace, 'own.txt')),
+			worktreeLeft: fs.readdirSync(worktrees).some(repo => fs.existsSync(path.join(worktrees, repo, 'agent-1'))),
+			branches: spawnSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads/dragon'], { cwd: workspace, encoding: 'utf8' }).stdout.trim(),
+			log: spawnSync('git', ['log', '--format=%s', '-1'], { cwd: workspace, encoding: 'utf8' }).stdout.trim(),
+		};
+		if (JSON.stringify(found) !== JSON.stringify({ inWorkspace: true, worktreeLeft: false, branches: '', log: 'agent-1: work from a Dragon agent' })) {
+			throw new Error(`the agent's work was not merged and its worktree removed: ${JSON.stringify(found)}`);
+		}
+		await shot(win, 'merged-worktree');
+	});
+
+	await step(win, 'in Ask mode, a teammate whose chat is open in a tab behind another asks in a notification, and Allow once there runs its command', async () => {
+		// As agents opened with the plus are: in tabs of one group, all but the last behind another.
+		const group = groups.filter({ has: win.locator('.tab', { hasText: 'teammate-1' }) }).first();
+		const tab = group.locator('.tab', { hasText: 'teammate-1' });
+		await tab.click({ timeout: STEP_TIMEOUT });
+		await runCommand(win, 'File: New Untitled Text File');
+		await group.locator('.tab.active', { hasText: 'Untitled' }).waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		if ((await tab.getAttribute('class'))?.includes('active')) {
+			throw new Error('teammate-1\'s tab is still the one shown');
+		}
+		const lead = groups.first();
+		await lead.locator(INPUT).click();
+		await win.keyboard.insertText('[[mock:behind]] Have teammate-1 create behind.txt.');
+		await win.keyboard.press('Enter');
+		const asks = win.locator('.notifications-toasts .notification-toast', { hasText: 'asks' });
+		const toast = asks.filter({ hasText: 'teammate-1 asks: ' });
+		await toast.waitFor({ state: 'visible', timeout: STEP_TIMEOUT }).catch(async () => {
+			throw new Error(`no notification asked for teammate-1's command; the toasts read ${JSON.stringify(await win.locator('.notifications-toasts .notification-toast').allInnerTexts())}`);
+		});
+		// One question, asked once: the window's prompt, not also the one Dragon shows for a closed chat.
+		await new Promise(resolve => setTimeout(resolve, 2000));
+		const found = { asks: await asks.count(), ran: fs.existsSync(path.join(workspace, 'behind.txt')), text: (await toast.innerText()).replace(/\s+/g, ' ') };
+		if (found.asks !== 1 || found.ran || !/teammate-1 asks: .*behind\.txt.*Allow this\?/.test(found.text)) {
+			throw new Error(`the notification was not the one question before the command ran: ${JSON.stringify(found)}`);
+		}
+		await shot(win, 'behind-tab-asks');
+		await toast.getByRole('button', { name: 'Allow once' }).click({ timeout: STEP_TIMEOUT });
+		await lead.locator('.interactive-item-container.interactive-response .rendered-markdown', { hasText: 'Behind-tab task done.' }).first().waitFor({ state: 'visible', timeout: STEP_TIMEOUT });
+		await idle(lead);
+		const after = { ran: fs.existsSync(path.join(workspace, 'behind.txt')), prompts: await asks.count(), stillBehind: !(await tab.getAttribute('class'))?.includes('active') };
+		if (JSON.stringify(after) !== JSON.stringify({ ran: true, prompts: 0, stillBehind: true })) {
+			throw new Error(`Allow once in the notification did not run the command and close it: ${JSON.stringify(after)}`);
+		}
 	});
 
 } catch (err) {

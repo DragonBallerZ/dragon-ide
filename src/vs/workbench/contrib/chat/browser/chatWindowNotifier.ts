@@ -13,11 +13,13 @@ import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { FocusMode } from '../../../../platform/native/common/native.js';
+import { INotificationService, IPromptChoice, Severity } from '../../../../platform/notification/common/notification.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IChatModel, IChatRequestNeedsInputInfo } from '../common/model/chatModel.js';
 import { observeChatModelIsIdle } from '../common/model/chatModelIdle.js';
-import { IChatService, IChatToolInvocation, ToolConfirmKind } from '../common/chatService/chatService.js';
+import { IChatQuestionAnswers, IChatQuestionCarousel, IChatService, IChatToolInvocation, ToolConfirmKind } from '../common/chatService/chatService.js';
+import { ChatQuestionCarouselData } from '../common/model/chatProgressTypes/chatQuestionCarouselData.js';
 import { migrateLegacyTerminalToolSpecificData } from '../common/chat.js';
 import { ChatNotificationKind, getChatNotificationDedupeKey } from '../common/chatNotification.js';
 import { ChatConfiguration, ChatNotificationMode } from '../common/constants.js';
@@ -47,11 +49,15 @@ export class ChatWindowNotifier extends Disposable implements IWorkbenchContribu
 
 	private readonly _activeNotifications = this._register(new DisposableResourceMap());
 
+	/** DRAGON: the prompts in this window for chats that need input and are not on screen. */
+	private readonly _offScreenPrompts = this._register(new DisposableResourceMap());
+
 	constructor(
 		@IChatService private readonly _chatService: IChatService,
 		@IChatWidgetService private readonly _chatWidgetService: IChatWidgetService,
 		@IHostService private readonly _hostService: IHostService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@INotificationService private readonly _notificationService: INotificationService,
 	) {
 		super();
 
@@ -100,9 +106,11 @@ export class ChatWindowNotifier extends Disposable implements IWorkbenchContribu
 			// Only notify on transition from false -> true
 			if (!previousNeedsInput && currentNeedsInput && newValue) {
 				this._notifyIfNeeded(model.sessionResource, newValue);
+				void this._promptIfOffScreen(model.sessionResource, newValue);
 			} else if (previousNeedsInput && !currentNeedsInput) {
 				// Clear any active notification for this session when input is no longer needed
 				this._clearNotification(model.sessionResource);
+				this._offScreenPrompts.deleteAndDispose(model.sessionResource);
 			}
 		}));
 		store.add(autorunDelta(isIdle, ({ lastValue, newValue }) => {
@@ -178,6 +186,59 @@ export class ChatWindowNotifier extends Disposable implements IWorkbenchContribu
 			}
 		} finally {
 			this._clearNotification(sessionResource);
+		}
+	}
+
+	/**
+	 * DRAGON: a chat that needs input and is not on screen, such as an agent's chat in a tab behind
+	 * another, asks in this window too, whether or not it has focus. Its approval card shows only in
+	 * that tab, and the agent waited there unseen while the user talked to the chat that leads it. The
+	 * prompt offers the card's choices when it asks one question with options, and closes once the
+	 * chat no longer needs input.
+	 */
+	private async _promptIfOffScreen(sessionResource: URI, info: IChatRequestNeedsInputInfo): Promise<void> {
+		if (this._configurationService.getValue<ChatNotificationMode>(ChatConfiguration.NotifyWindowOnConfirmation) === ChatNotificationMode.Off) {
+			return;
+		}
+		await timeout(this._getBackgroundNotificationDelay());
+		const model = this._chatService.getSession(sessionResource);
+		if (!model?.requestNeedsInput.get() || this._chatWidgetService.getWidgetBySessionResource(sessionResource)?.visible) {
+			return;
+		}
+		const request = model.lastRequest;
+		const carousel = request?.response?.response.value.find((part): part is IChatQuestionCarousel => part.kind === 'questionCarousel' && !part.isUsed);
+		const question = carousel?.questions.length === 1 ? carousel.questions[0] : undefined;
+		const choices: IPromptChoice[] = [];
+		if (request && carousel && question?.type === 'singleSelect') {
+			for (const option of question.options ?? []) {
+				choices.push({ label: option.label, run: () => this._answerQuestion(request.id, carousel, { [question.id]: { selectedValue: option.value } }) });
+			}
+		}
+		choices.push({
+			label: localize('dragon.chatOffScreen.show', "Show Chat"),
+			run: async () => (await this._chatWidgetService.openSession(sessionResource))?.focusInput(),
+		});
+		const title = info.title || localize('chat.untitledChat', "Untitled Session");
+		const detail = typeof question?.message === 'string' ? question.message : question?.message?.value;
+		const message = question && detail ? localize('dragon.chatOffScreen.asksAbout', "{0} asks: {1} {2}", title, detail, question.title)
+			: localize('dragon.chatOffScreen.asks', "{0} asks: {1}", title, question?.title ?? info.detail ?? localize('notificationDetail', "Approval needed to continue."));
+		const prompt = this._notificationService.prompt(Severity.Info, message, choices, { sticky: true });
+		this._offScreenPrompts.set(sessionResource, toDisposable(() => prompt.close()));
+	}
+
+	/** DRAGON: answers a question card from outside the chat's list, as the card's own submit does. */
+	private _answerQuestion(requestId: string, carousel: IChatQuestionCarousel, answers: IChatQuestionAnswers): void {
+		if (carousel.isUsed) {
+			return;
+		}
+		if (carousel instanceof ChatQuestionCarouselData) {
+			carousel.dismiss(answers);
+		} else {
+			carousel.data = answers;
+			carousel.isUsed = true;
+		}
+		if (carousel.resolveId) {
+			this._chatService.notifyQuestionCarouselAnswer(requestId, carousel.resolveId, answers);
 		}
 	}
 

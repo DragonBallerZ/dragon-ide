@@ -140,6 +140,8 @@ The full contracts are in [`extensions/dragon-agent/SPEC.md`](extensions/dragon-
 
 ## Changelog
 
+- Unreleased (2026-10-06): **Dragon: Merge Agent's Work and Remove Its Worktree** (dragon-agent 0.11.0), with a unit test and a desktop smoke check.
+
 - 0.9.6 (2026-10-06): V1.1.5; **Dragon: New Agent**, the plus in a chat's title, opens an agent in a Git worktree and branch of its own (dragon-agent 0.10.0), with a desktop smoke check of it.
 
 - 0.9.5 (2026-10-05): V1.1.4; agents message each other and work in teams (dragon-agent 0.9.0): the Messages chip, **Dragon: New Team**, **Dragon: Stop All Agents**, and a desktop smoke test of them.

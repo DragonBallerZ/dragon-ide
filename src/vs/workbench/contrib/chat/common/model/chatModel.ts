@@ -1059,10 +1059,30 @@ export class Response extends AbstractResponse implements IDisposable {
 				this._responseParts[idx] = progress;
 			}
 			this._contentChanged(quiet);
+		} else if (progress.kind === 'questionCarousel' && progress.isUsed && this._settleQuestionCarousel(progress)) {
+			this._contentChanged(quiet);
 		} else {
 			this._responseParts.push(progress);
 			this._contentChanged(quiet);
 		}
+	}
+
+	/**
+	 * DRAGON: an extension sends a carousel it already showed again, as used, when the question was
+	 * settled somewhere else. The one shown closes; it is updated in place because the renderer
+	 * watches that object to know when to close the card.
+	 */
+	private _settleQuestionCarousel(progress: IChatQuestionCarousel): boolean {
+		const shown = progress.resolveId ? this._responseParts.find((part): part is IChatQuestionCarousel => part.kind === 'questionCarousel' && part.resolveId === progress.resolveId) : undefined;
+		if (!shown) {
+			return false;
+		}
+		if (!shown.isUsed) {
+			shown.data = progress.data ?? {};
+			shown.answeredExternally = progress.answeredExternally;
+			shown.isUsed = true;
+		}
+		return true;
 	}
 
 	/**
@@ -1132,6 +1152,10 @@ export class Response extends AbstractResponse implements IDisposable {
 		if (existingInvocation) {
 			if (progress.toolSpecificData !== undefined) {
 				existingInvocation.toolSpecificData = progress.toolSpecificData;
+			}
+			// DRAGON: a new message for a tool that is still running (such as a command's elapsed time) is its progress.
+			if (!progress.isComplete && progress.invocationMessage) {
+				existingInvocation.acceptProgress({ message: progress.invocationMessage });
 			}
 			if (progress.isComplete) {
 				existingInvocation.didExecuteTool({
@@ -1746,7 +1770,10 @@ export class ChatResponseModel extends Disposable implements IChatResponseModel 
 		// spinner/"Editing files" label. See https://github.com/microsoft/vscode/issues/288701.
 		for (const part of this._response.value) {
 			if (part.kind === 'toolInvocation' && part instanceof ChatToolInvocation) {
-				part.cancelFromStreaming(ToolConfirmKind.Skipped);
+				// DRAGON: an extension's tool that is still running can no longer report its end, so it ends here.
+				if (!part.cancelFromStreaming(ToolConfirmKind.Skipped) && part.source.type === 'external') {
+					part.cancelFromExecuting();
+				}
 			} else if (part instanceof ChatPlanReviewData) {
 				part.dismiss();
 			} else if (part instanceof ChatQuestionCarouselData) {

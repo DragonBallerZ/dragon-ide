@@ -99,7 +99,7 @@ Dragon IDE asks for no account. The onboarding drives OpenCode through the drago
   2. one-button entry with no setup controls, including keyboard focus containment
   3. **Connect AI** inside the app and the workspace trust dialog
   4. local/API-key/sign-in choices, then choosing the mock local model and creating its agent variant
-  5. an `@dragon` turn that reads and edits a file on the selected variant, with successful tool cards and an on-disk assertion
+  5. the chat's model picker naming the variant before anything is typed (the side bar's chat is maximized first: at its default width the picker is in More Actions), then an `@dragon` turn that reads and edits a file on the selected variant, with successful tool cards and an on-disk assertion, and its whole answer outside its reasoning and the folded steps. The answer's last chunk comes 500 ms after the rest, so OpenCode reports the reasoning ended after the answer started, as it does for Nemotron on OpenCode Zen
   - The test folder's `opencode.json` enables only the `ollama` provider, so the turn cannot go to a hosted model.
   - CI runs it in the `package-linux` job against the packaged app under Xvfb (`--app ../VSCode-linux-x64`). Screenshots and the app's logs, OpenCode's included, are uploaded with the job's screenshots.
   - Locally it runs the development build by default (after `npm run compile` and `npm run electron`).
@@ -111,6 +111,8 @@ Dragon IDE asks for no account. The onboarding drives OpenCode through the drago
 
 ## Changelog
 
+- 0.6.3 (2026-10-08): the onboarding smoke test waits until the chat's model picker names the agent variant before it types, instead of up to 90 s for a picker name the narrow chat did not show. With the base model still listed and chosen, it fails there. Typing as soon as the chat shows ran the turn on the base model; that race in the product is not fixed yet.
+- 0.6.2 (2026-10-07): the onboarding smoke test checks that the answer shows in full outside its reasoning, from a model that reports the reasoning ended after the answer started. Before the turn reducer's fix it showed only the answer's last chunk.
 - 0.6.1 (2026-10-02): the entrance and the Welcome page are headed **Dragon IDE** instead of FREEDOM AI (the Welcome page shows the product name again, as upstream does, so development builds read "Dragon IDE Dev"). The onboarding smoke test checks both headings.
 - 0.6.0 (2026-09-30): the composer's usage readout (context ring, cache hit, price per 1M tokens) for Dragon models; unit test `dragonShared/test/browser/usageChips.test.ts`.
 - 0.5.1 (2026-09-30): Restore the static welcome dragon; remove the breathing/fire renderer and associated animation styles.

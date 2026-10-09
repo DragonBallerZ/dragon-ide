@@ -1,0 +1,36 @@
+diff --git a/packages/core/src/formatter.ts b/packages/core/src/formatter.ts
+index eb85babf..f9e63d86 100644
+--- a/packages/core/src/formatter.ts
++++ b/packages/core/src/formatter.ts
+@@ -2,6 +2,7 @@ export * as Formatter from "./formatter.js"
+ 
+ import { Context, Effect, Layer } from "effect"
+ import { ChildProcess } from "effect/unstable/process"
++import { existsSync } from "node:fs"
+ import path from "path"
+ import { makeLocationNode } from "@opencode/util/effect/app-node"
+ import { AppProcess } from "@opencode/util/process"
+@@ -62,11 +63,21 @@ const layer = Layer.effect(
+         if (enabled === false) continue
+         const cmd = enabled.map((argument) => argument.replace("$FILE", filepath))
+         yield* Effect.logInfo("formatting file", { file: filepath, command: cmd })
++        // DRAGON: a project configures its own formatter commands, which OpenCode spawns directly, not
++        // through a window's shell. When the window is confined (Dragon set a sandbox for it), run them
++        // in that sandbox, as agents' shell commands and MCP servers are, so a formatter cannot reach
++        // outside the open folders. HOME is set to the sandbox's home so `~` resolves inside it. Without
++        // a sandbox (off macOS, or Full Access), or one whose files are gone, the command runs unchanged.
++        const sandboxProfile = process.env.DRAGON_SANDBOX_PROFILE
++        const sandboxHome = process.env.DRAGON_SANDBOX_HOME
++        const confined = sandboxProfile && sandboxHome ? existsSync(sandboxProfile) : false
++        const spawned = confined ? ["/usr/bin/sandbox-exec", "-f", sandboxProfile!, ...cmd] : cmd
++        const environment = confined ? { ...formatter.environment, HOME: sandboxHome! } : formatter.environment
+         const result = yield* processes
+           .run(
+-            ChildProcess.make(cmd[0], cmd.slice(1), {
++            ChildProcess.make(spawned[0], spawned.slice(1), {
+               cwd: location.directory,
+-              env: formatter.environment,
++              env: environment,
+               extendEnv: true,
+               stdin: "ignore",
+               stdout: "ignore",

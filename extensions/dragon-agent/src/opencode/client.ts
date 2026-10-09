@@ -29,6 +29,11 @@ export function isStaleConnection(err: unknown): boolean {
 	return err instanceof TypeError && ['ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET', 'UND_ERR_CLOSED'].includes(cause?.code ?? '');
 }
 
+/** The server does not have what the request was about, such as a permission request it already settled. */
+export function isNotFound(err: unknown): boolean {
+	return err instanceof OpenCodeHttpError && err.status === 404;
+}
+
 /** The server always requires Basic auth with the fixed user name `opencode`. */
 export function basicAuth(password: string): string {
 	return `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
@@ -184,6 +189,13 @@ export class OpenCodeClient {
 	/** The session's most recent messages (the server's first page). */
 	async messages(sessionID: string, limit = 100): Promise<unknown[]> {
 		return (await this.request<{ data: unknown[] }>('GET', `/api/session/${encodeURIComponent(sessionID)}/message`, { query: { limit } })).data ?? [];
+	}
+
+	/** The end of what a shell command printed so far, at most `bytes` long. Readable while it runs. */
+	async shellTail(directory: string | undefined, shellID: string, bytes = 4096): Promise<string> {
+		const path = `/api/shell/${encodeURIComponent(shellID)}/output`;
+		const { size } = (await this.request<Scoped<{ size: number }>>('GET', path, { directory, query: { cursor: Number.MAX_SAFE_INTEGER } })).data;
+		return (await this.request<Scoped<{ output: string }>>('GET', path, { directory, query: { cursor: Math.max(0, size - bytes), limit: bytes } })).data.output;
 	}
 
 	replyPermission(sessionID: string, requestID: string, decision: PermissionDecision, message?: string) {

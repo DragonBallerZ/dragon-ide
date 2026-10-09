@@ -2240,6 +2240,27 @@ suite('ChatThinkingContentPart', () => {
 			const result = part.hasSameContent(otherThinking, [], context.element);
 			assert.strictEqual(result, true, 'Should return true for thinking part with different id');
 		});
+
+		// DRAGON: text can reach a block after the last progressive render, as a compaction summary does
+		// when the response ends right after it; the render at completion must still draw it.
+		test('should return false after completion only for the same thinking part with changed text', () => {
+			const context = createMockRenderContext(true);
+
+			const part = store.add(instantiationService.createInstance(
+				ChatThinkingContentPart,
+				createThinkingPart('**Summary**\n\n## Objective', 'id-1'),
+				context,
+				mockMarkdownRenderer,
+				true
+			));
+
+			assert.deepStrictEqual([
+				createThinkingPart('**Summary**\n\n## Objective', 'id-1'),
+				createThinkingPart('**Summary**\n\n## Objective\nShip the game.', 'id-1'),
+				createThinkingPart('', 'id-1'),
+				createThinkingPart('**Other**', 'id-2'),
+			].map(other => part.hasSameContent(other, [], context.element)), [true, false, true, true]);
+		});
 	});
 
 	suite('DOM structure', () => {

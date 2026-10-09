@@ -124,9 +124,10 @@ export class UsageService implements Disposable {
 
 	/**
 	 * The readout for a session and the model the composer has selected (`provider/model`). With
-	 * no session yet it shows only the model's window and prices.
+	 * no session yet it shows only the model's window and prices. `autoAt` is
+	 * `dragon.compaction.autoAt`.
 	 */
-	async summary(input: { sessionID?: string; model?: string }): Promise<UsageSummary> {
+	async summary(input: { sessionID?: string; model?: string; autoAt?: number }): Promise<UsageSummary> {
 		const client = await this.connect();
 		const session = input.sessionID ? await this.sessionUsage(client, input.sessionID).catch(() => undefined) : undefined;
 		const ref = parseModelRef(input.model ?? session?.model);
@@ -143,6 +144,7 @@ export class UsageService implements Disposable {
 			total: session?.total,
 			cost: session?.cost,
 			compacted: sameModel && session?.compacted,
+			autoAt: input.autoAt,
 		});
 	}
 }

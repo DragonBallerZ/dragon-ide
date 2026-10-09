@@ -20,12 +20,29 @@ import type { AddressInfo } from 'node:net';
  * script, counting only the tool results after it. One server can then script several chats, and
  * a subagent's own conversation when its prompt names a scenario.
  *
+ * In a tool call's arguments, `[[mock:saved]]` stands for the file the last tool result said OpenCode
+ * saved its full output to, as a model reads it after a long result.
+ *
+ * With `summary`, OpenCode's request to summarize the conversation for a compaction gets that text.
+ *
  * With `embedModel`, `/api/embed` answers with a hashed bag-of-words vector: texts sharing
  * words get similar vectors, which is enough to test ranking deterministically.
  */
 export type ScriptStep =
-	| { readonly kind: 'tool'; readonly name: string; readonly args: Record<string, unknown> }
-	| { readonly kind: 'text'; readonly chunks: readonly string[]; readonly reasoning?: readonly string[] };
+	/**
+	 * A tool call. With `text`, the reply says it first, as a model tells what it is about to do. With
+	 * `pause`, the reply waits that many milliseconds before the call, as a model thinks before it calls.
+	 */
+	| { readonly kind: 'tool'; readonly name: string; readonly args: Record<string, unknown>; readonly text?: readonly string[]; readonly pause?: number }
+	/** Several tool calls in one reply, which OpenCode runs at the same time. */
+	| { readonly kind: 'tools'; readonly calls: readonly { readonly name: string; readonly args: Record<string, unknown> }[]; readonly pause?: number }
+	/**
+	 * A reply. With `pause`, it waits that many milliseconds before its last chunk, as a slow provider
+	 * streams: OpenCode publishes the text before that chunk on its own, before the reply ends.
+	 */
+	| { readonly kind: 'text'; readonly chunks: readonly string[]; readonly reasoning?: readonly string[]; readonly pause?: number }
+	/** A provider error: the request is answered with `status` and an OpenAI-style error body, with `code` if given. */
+	| { readonly kind: 'fail'; readonly status: number; readonly message: string; readonly code?: string };
 
 export interface MockOllama {
 	readonly origin: string;
@@ -44,6 +61,8 @@ export interface MockOllamaOptions {
 	readonly usage?: { readonly prompt: number; readonly completion: number; readonly cached?: number };
 	/** Scripts picked by a `[[mock:<name>]]` marker in a user message (see above). */
 	readonly scenarios?: Readonly<Record<string, readonly ScriptStep[]>>;
+	/** The chunks of the summary a compaction gets (see above). */
+	readonly summary?: readonly string[];
 }
 
 interface ChatMessage {
@@ -111,14 +130,25 @@ export async function startMockOllama(script: readonly ScriptStep[], model = 'qw
 				return res.end();
 			}
 			if (url.startsWith('/v1/chat/completions')) {
+				const last = body?.messages?.at(-1);
+				if (options.summary && last && textOf(last).includes('Return only the structured summary')) {
+					return streamCompletion(res, model, { kind: 'text', chunks: options.summary }, options.usage);
+				}
 				if (!body?.tools?.length) {
 					return streamCompletion(res, model, { kind: 'text', chunks: ['Dragon session'] });
 				}
 				const messages = body.messages ?? [];
 				const scenario = findScenario(messages, options.scenarios);
 				const steps = scenario?.steps ?? script;
-				const toolResults = messages.slice(scenario?.from ?? 0).filter(m => m.role === 'tool').length;
-				return streamCompletion(res, model, steps[toolResults % steps.length], options.usage);
+				// One step per reply that called tools: the results of a reply's calls come in a row.
+				const asked = messages.slice(scenario?.from ?? 0);
+				const toolSteps = asked.filter((m, i) => m.role === 'tool' && asked[i - 1]?.role !== 'tool').length;
+				const step = withSaved(steps[toolSteps % steps.length], messages);
+				if (step?.kind === 'fail') {
+					res.writeHead(step.status, { 'content-type': 'application/json' });
+					return res.end(JSON.stringify({ error: { message: step.message, type: 'invalid_request_error', code: step.code } }));
+				}
+				return streamCompletion(res, model, step, options.usage);
 			}
 			res.writeHead(404).end();
 		});
@@ -132,7 +162,7 @@ export async function startMockOllama(script: readonly ScriptStep[], model = 'qw
 	};
 }
 
-function streamCompletion(res: http.ServerResponse, model: string, step: ScriptStep | undefined, usage?: MockOllamaOptions['usage']): void {
+function streamCompletion(res: http.ServerResponse, model: string, step: Exclude<ScriptStep, { kind: 'fail' }> | undefined, usage?: MockOllamaOptions['usage']): void {
 	res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
 	const id = `chatcmpl-${Math.random().toString(36).slice(2)}`;
 	const send = (delta: object, finish: string | null = null) =>
@@ -142,15 +172,48 @@ function streamCompletion(res: http.ServerResponse, model: string, step: ScriptS
 		for (const chunk of step?.reasoning ?? []) {
 			send({ reasoning_content: chunk });
 		}
-		for (const chunk of step?.chunks ?? ['Done.']) {
+		const chunks = step?.chunks ?? ['Done.'];
+		for (const chunk of step?.pause ? chunks.slice(0, -1) : chunks) {
 			send({ content: chunk });
+		}
+		if (step?.pause) {
+			setTimeout(() => {
+				send({ content: chunks.at(-1) });
+				send({}, 'stop');
+				end(res, model, id, usage);
+			}, step.pause);
+			return;
 		}
 		send({}, 'stop');
 	} else {
-		send({ role: 'assistant', tool_calls: [{ index: 0, id: `call_${Math.random().toString(36).slice(2)}`, type: 'function', function: { name: step.name, arguments: '' } }] });
-		send({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify(step.args) } }] });
-		send({}, 'tool_calls');
+		const calls = step.kind === 'tool' ? [step] : step.calls;
+		const text = step.kind === 'tool' ? step.text ?? [] : [];
+		if (text.length) {
+			send({ role: 'assistant' });
+			for (const chunk of text) {
+				send({ content: chunk });
+			}
+		}
+		const reply = () => {
+			calls.forEach((call, index) => {
+				send({ ...(index === 0 && !text.length ? { role: 'assistant' } : {}), tool_calls: [{ index, id: `call_${Math.random().toString(36).slice(2)}`, type: 'function', function: { name: call.name, arguments: '' } }] });
+				send({ tool_calls: [{ index, function: { arguments: JSON.stringify(call.args) } }] });
+			});
+			send({}, 'tool_calls');
+			end(res, model, id, usage);
+		};
+		if (step.pause) {
+			setTimeout(reply, step.pause);
+		} else {
+			reply();
+		}
+		return;
 	}
+	end(res, model, id, usage);
+}
+
+/** Reports the usage and ends the stream. */
+function end(res: http.ServerResponse, model: string, id: string, usage?: MockOllamaOptions['usage']): void {
 	const reported = usage
 		? { prompt_tokens: usage.prompt, completion_tokens: usage.completion, total_tokens: usage.prompt + usage.completion, ...(usage.cached !== undefined ? { prompt_tokens_details: { cached_tokens: usage.cached } } : {}) }
 		: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 };
@@ -172,6 +235,17 @@ function safeJson(raw: string): unknown {
 	}
 }
 
+const SAVED = '[[mock:saved]]';
+
+/** The step with `[[mock:saved]]` in its tool calls' arguments replaced (see above). */
+function withSaved(step: ScriptStep | undefined, messages: readonly ChatMessage[]): ScriptStep | undefined {
+	if (step?.kind !== 'tool' || !JSON.stringify(step.args).includes(SAVED)) {
+		return step;
+	}
+	const file = messages.filter(message => message.role === 'tool').map(message => [...textOf(message).matchAll(/full output saved to (?<file>[^\]\n]+)\]/g)].at(-1)?.groups?.file).filter(Boolean).at(-1) ?? 'no saved output';
+	return { ...step, args: JSON.parse(JSON.stringify(step.args).replaceAll(SAVED, JSON.stringify(file).slice(1, -1))) };
+}
+
 /** A deterministic embedding: each word (camelCase and snake_case split, lowercased) adds a signed hashed component. */
 /** The scenario named by the last user message with a known `[[mock:<name>]]` marker, and where that message is. */
 function findScenario(messages: readonly ChatMessage[], scenarios: MockOllamaOptions['scenarios']): { steps: readonly ScriptStep[]; from: number } | undefined {
@@ -179,9 +253,7 @@ function findScenario(messages: readonly ChatMessage[], scenarios: MockOllamaOpt
 		if (messages[i].role !== 'user') {
 			continue;
 		}
-		const content = messages[i].content;
-		const text = typeof content === 'string' ? content : (content ?? []).map(part => part.text ?? '').join('\n');
-		for (const match of text.matchAll(/\[\[mock:(?<name>[\w-]+)\]\]/g)) {
+		for (const match of textOf(messages[i]).matchAll(/\[\[mock:(?<name>[\w-]+)\]\]/g)) {
 			const steps = scenarios[match.groups!.name];
 			if (steps) {
 				return { steps, from: i };
@@ -189,6 +261,11 @@ function findScenario(messages: readonly ChatMessage[], scenarios: MockOllamaOpt
 		}
 	}
 	return undefined;
+}
+
+function textOf(message: ChatMessage): string {
+	const content = message.content;
+	return typeof content === 'string' ? content : (content ?? []).map(part => part.text ?? '').join('\n');
 }
 
 export function bagOfWords(text: string, dims: number): number[] {

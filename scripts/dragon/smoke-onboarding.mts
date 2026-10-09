@@ -10,7 +10,8 @@
 //   3. Connect AI inside the app, then the normal workspace trust dialog
 //   4. picking a local model in-app, which creates its agent variant (with a larger context window)
 //   5. a Dragon turn that reads and edits a file, approving the edit when Dragon asks (the default
-//      permission mode asks first), with Dragon tool cards and the diff
+//      permission mode asks first), with Dragon tool cards and the diff, and the whole answer shown
+//      outside its reasoning when the model reports the reasoning ended after the answer started
 // Every step asserts on the app itself, and the file on disk and the requests the fake Ollama
 // received are checked too, so a turn answered by some other model cannot pass.
 // On a machine too small for the model (an 8 GB CI runner), step 4 checks that the app refuses it
@@ -101,7 +102,9 @@ fs.writeFileSync(path.join(workspace, 'opencode.json'), JSON.stringify({ $schema
 const mock = await startMockOllama([
 	{ kind: 'tool', name: 'read', args: { path: 'hello.txt' } },
 	{ kind: 'tool', name: 'edit', args: { path: 'hello.txt', oldString: 'hello world', newString: 'hello dragon' } },
-	{ kind: 'text', reasoning: ['The file now greets the dragon.'], chunks: ['Changed ', 'hello.txt ', 'to greet the dragon.'] },
+	// Slow, as Nemotron on OpenCode Zen is: OpenCode publishes the start of the answer before it reports
+	// the reasoning ended, and the answer must still show in full, not folded away with the reasoning.
+	{ kind: 'text', reasoning: ['The file now greets the dragon.'], chunks: ['Changed ', 'hello.txt ', 'to greet the dragon.'], pause: 500 },
 ], MODEL);
 
 fs.writeFileSync(path.join(userData, 'User', 'settings.json'), JSON.stringify({
@@ -239,10 +242,22 @@ try {
 		await step(win, 'Dragon turn reads and edits a file', async () => {
 			const input = '.interactive-input-part .monaco-editor[role="code"]';
 			await win.waitForSelector(input, { state: 'visible', timeout: STEP_TIMEOUT });
-			// The chat model picker should show the model onboarding set up.
-			await win.waitForSelector(`.interactive-input-part .model-picker-name:has-text("${variant.split(':').pop()}")`, { timeout: STEP_TIMEOUT }).catch(() => {
-				console.log('note: the model picker does not show the new variant by name; the requests below decide');
-			});
+			// The chat model picker shows the model onboarding set up before the user types, as a user
+			// would see it. The side bar's chat is too narrow for the picker, which moves into More Actions,
+			// so the chat is maximized first. Its label ("Models, <model>") names the model.
+			// Its title bar button, unlike the Command Palette, is not closed when Connect AI focuses the chat.
+			if (await win.locator('.part.auxiliarybar .interactive-input-part').count()) {
+				await win.locator('.part.auxiliarybar .action-label[aria-label^="Maximize Secondary Side Bar"]').click({ timeout: STEP_TIMEOUT });
+			}
+			const picker = win.locator('.interactive-input-part .model-picker-split');
+			const pickerLabel = async () => (await picker.evaluateAll(elements => elements.map(element => element.getAttribute('aria-label') ?? ''))).join(' | ');
+			const wanted = variant.split(':').pop()!;
+			for (const end = Date.now() + STEP_TIMEOUT; !(await pickerLabel()).includes(wanted) && Date.now() < end;) {
+				await win.waitForTimeout(250);
+			}
+			if (!(await pickerLabel()).includes(wanted)) {
+				throw new Error(`the model picker reads ${JSON.stringify(await pickerLabel())}, not the new variant ${wanted}`);
+			}
 			await win.click(input);
 			// Dragon answers in Agent mode without an @-mention. The text is inserted rather than typed
 			// key by key, so the completion widget cannot turn it into a slash command.
@@ -265,6 +280,12 @@ try {
 			const responder = (await response.$eval('.username', el => el.textContent).catch(() => null))?.trim();
 			if (responder !== 'Dragon') {
 				throw new Error(`the response came from ${JSON.stringify(responder)}, not Dragon`);
+			}
+			const answer = await response.$$eval('.rendered-markdown', els => els
+				.filter(el => !el.closest('.completed-response-disclosure, .chat-thinking-box'))
+				.map(el => (el.textContent ?? '').replace(/\s+/g, ' ').trim()).join(' '));
+			if (!answer.includes('Changed hello.txt to greet the dragon.')) {
+				throw new Error(`the answer outside the steps and the reasoning reads ${JSON.stringify(answer)}, not the whole reply`);
 			}
 			const readCards = () => win.$$eval('.dragon-tool-card', els => els.map(el => ({ ok: el.classList.contains('dragon-tool-card-success'), text: (el.textContent ?? '').replace(/\s+/g, ' ').trim() })));
 			let cards = await readCards();

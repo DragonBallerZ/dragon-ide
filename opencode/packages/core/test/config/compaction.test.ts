@@ -122,6 +122,23 @@ describe("ConfigCompactionPlugin.Plugin", () => {
       })
       expect(compaction.required(bufferedInput)).toBe(false)
 
+      // DRAGON: compaction.threshold reaches the compaction settings.
+      yield* config.setEntries([
+        new Document({
+          type: "document",
+          info: new Info({ compaction: new ConfigCompaction.Info({ auto: true, buffer: 10_000, threshold: 0.5 }) }),
+        }),
+      ])
+      yield* bus.publish(Event.Updated, {})
+      yield* Effect.gen(function* () {
+        for (let attempt = 0; attempt < 200; attempt++) {
+          if (compaction.required(input(50_000))) return
+          yield* Effect.sleep("10 millis")
+        }
+        yield* Effect.die(new Error("Timed out waiting for the compaction threshold"))
+      })
+      expect(compaction.required(input(49_999))).toBe(false)
+
       yield* config.setEntries([
         new Document({
           type: "document",

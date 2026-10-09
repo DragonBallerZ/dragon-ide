@@ -121,6 +121,25 @@ export class OpenCodeServer {
 		this.options = { ...this.options, ...options };
 	}
 
+	/**
+	 * Replaces the options, and restarts a running server whose environment they change. A server
+	 * keeps agents to the folders it started with, so a folder taken out of the window would stay
+	 * open to them until the next start.
+	 */
+	async reconfigure(options: Partial<ServerOptions>): Promise<void> {
+		const before = JSON.stringify(this.options.extraEnv ?? {});
+		this.update(options);
+		if (JSON.stringify(this.options.extraEnv ?? {}) === before) {
+			return;
+		}
+		// A server still starting started with the old environment.
+		await this.starting?.catch(() => undefined);
+		if (this.process) {
+			this.options.log('[server] the environment changed; restarting');
+			await this.restart();
+		}
+	}
+
 	/** Returns a client for a ready server, starting it if needed. */
 	ensure(): Promise<OpenCodeClient> {
 		if (this.client && this._state.kind === 'ready') {

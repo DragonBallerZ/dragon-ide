@@ -3289,11 +3289,17 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		// DRAGON: permission mode and working-directory chips for the OpenCode agent.
 		if (this.options.renderStyle !== 'compact') {
 			this._register(this.instantiationService.createInstance(DragonPermissionToggle, elements.dragonChips));
-			this._register(this.instantiationService.createInstance(DragonDirectoryToggle, elements.dragonChips, { sessionResource: () => this._widget?.viewModel?.model.sessionResource }));
-			this._register(this.instantiationService.createInstance(DragonMessagingToggle, elements.dragonChips, { sessionResource: () => this._widget?.viewModel?.model.sessionResource })); // DRAGON: messages between agents, per chat
-			this.dragonUsage = this._register(this.instantiationService.createInstance(DragonUsageChips, elements.secondaryToolbar, { // DRAGON: context, cache hit and price readout, at the toolbar's end
+			const directoryChip = this._register(this.instantiationService.createInstance(DragonDirectoryToggle, elements.dragonChips, { sessionResource: () => this._widget?.viewModel?.model.sessionResource }));
+			const messagingChip = this._register(this.instantiationService.createInstance(DragonMessagingToggle, elements.dragonChips, { sessionResource: () => this._widget?.viewModel?.model.sessionResource })); // DRAGON: messages between agents, per chat
+			const usage = this.dragonUsage = this._register(this.instantiationService.createInstance(DragonUsageChips, elements.secondaryToolbar, { // DRAGON: context, cache hit and price readout, at the toolbar's end
 				sessionResource: () => this._widget?.viewModel?.model.sessionResource,
 				model: () => { const lm = this._currentLanguageModel.get(); return lm && { vendor: lm.metadata.vendor, id: lm.metadata.id }; },
+			}));
+			// A chat editor keeps its composer when it shows another chat, as when the user switches its tabs.
+			this._register(widget.onDidChangeViewModel(() => {
+				directoryChip.refresh();
+				messagingChip.refresh();
+				usage.refresh();
 			}));
 		}
 		if (this.options.renderStyle === 'compact') {

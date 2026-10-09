@@ -29,10 +29,11 @@
  */
 
 import './media/toolCallCard.css';
-import { h, reset } from '../../../../base/browser/dom.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { disposableWindowInterval, getWindow, h, reset } from '../../../../base/browser/dom.js';
+import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
+import { localize } from '../../../../nls.js';
 import { LiveActivityUpdateScheduler } from './liveActivityScheduler.js';
 
 export type ToolCardStatus = 'pending' | 'running' | 'waiting' | 'success' | 'error' | 'cancelled';
@@ -47,6 +48,8 @@ export interface IToolCardModel {
 	output?: string;
 	status: ToolCardStatus;
 	durationMs?: number;
+	/** When a running tool started, in milliseconds since the epoch. The card counts up from it while the tool runs. */
+	startedAt?: number;
 	errorMessage?: string;
 	command?: string;
 	exitCode?: number;
@@ -62,11 +65,14 @@ export class ToolCallCard extends Disposable {
 	private readonly _toolName: HTMLElement;
 	private readonly _subtitle: HTMLElement;
 	private readonly _statusBadge: HTMLElement;
+	private readonly _elapsed: HTMLElement;
 	private readonly _meta: HTMLElement;
 	private readonly _body: HTMLElement;
 	private readonly _argsBlock: HTMLElement;
 	private readonly _outputBlock: HTMLElement;
 	private readonly _scheduler: LiveActivityUpdateScheduler;
+	/** Updates the time a running tool has run, so a long command does not look stalled. */
+	private readonly _ticker = this._register(new MutableDisposable());
 
 	private _model: IToolCardModel;
 	private _expanded = false;
@@ -79,7 +85,11 @@ export class ToolCallCard extends Disposable {
 		return this._model;
 	}
 
-	constructor(parent: HTMLElement, model: IToolCardModel) {
+	/**
+	 * @param now The clock the time a tool has run is measured with.
+	 * @param tickInterval How often that time updates, in milliseconds.
+	 */
+	constructor(parent: HTMLElement, model: IToolCardModel, private readonly _now: () => number = Date.now, private readonly _tickInterval = 1000) {
 		super();
 		this._model = model;
 
@@ -89,6 +99,7 @@ export class ToolCallCard extends Disposable {
 				h('span.dragon-tool-card-name@toolName'),
 				h('span.dragon-tool-card-subtitle@subtitle'),
 				h('span.dragon-tool-card-status@status'),
+				h('span.dragon-tool-card-elapsed@elapsed'),
 			]),
 			h('div.dragon-tool-card-meta@meta'),
 			h('div.dragon-tool-card-body@body', [
@@ -103,6 +114,7 @@ export class ToolCallCard extends Disposable {
 		this._toolName = layout.toolName;
 		this._subtitle = layout.subtitle;
 		this._statusBadge = layout.status;
+		this._elapsed = layout.elapsed;
 		this._meta = layout.meta;
 		this._body = layout.body;
 		this._argsBlock = layout.args;
@@ -121,6 +133,8 @@ export class ToolCallCard extends Disposable {
 		this._body.setAttribute('role', 'region');
 		this._statusBadge.setAttribute('role', 'status');
 		this._statusBadge.setAttribute('aria-live', 'polite');
+		// It changes every second, so it stays out of what the status announces.
+		this._elapsed.setAttribute('aria-hidden', 'true');
 
 		this._header.addEventListener('click', () => this.toggle());
 		this._header.addEventListener('keydown', (ev: KeyboardEvent) => {
@@ -177,6 +191,7 @@ export class ToolCallCard extends Disposable {
 		const ariaLabel = `${this._model.tool}${subtitle}, status: ${badge}. Press Enter to ${this._expanded ? 'collapse' : 'expand'} details.`;
 		this._header.setAttribute('aria-label', ariaLabel);
 		this._statusBadge.setAttribute('aria-label', `Status: ${badge}`);
+		this.renderElapsed();
 		this.renderMeta();
 
 		if (this._model.args !== undefined) {
@@ -202,6 +217,19 @@ export class ToolCallCard extends Disposable {
 			this._outputBlock.style.display = 'none';
 		}
 		this.renderChevron();
+	}
+
+	private renderElapsed(): void {
+		const { status, startedAt } = this._model;
+		if (status !== 'running' || startedAt === undefined) {
+			this._ticker.clear();
+			reset(this._elapsed);
+			return;
+		}
+		reset(this._elapsed, formatElapsed(this._now() - startedAt));
+		if (!this._ticker.value) {
+			this._ticker.value = disposableWindowInterval(getWindow(this._root), () => this.renderElapsed(), this._tickInterval);
+		}
 	}
 
 	private renderChevron(): void {
@@ -242,6 +270,21 @@ function badgeText(model: IToolCardModel): string {
 		case 'cancelled':
 			return 'cancelled';
 	}
+}
+
+/** How long a tool has run, such as "12s", "1m 5s" or "1h 2m"; nothing for the first second. */
+function formatElapsed(ms: number): string {
+	const seconds = Math.floor(ms / 1000);
+	if (seconds < 1) {
+		return '';
+	}
+	if (seconds < 60) {
+		return localize('dragonToolCard.elapsedSeconds', "{0}s", seconds);
+	}
+	if (seconds < 3600) {
+		return localize('dragonToolCard.elapsedMinutes', "{0}m {1}s", Math.floor(seconds / 60), seconds % 60);
+	}
+	return localize('dragonToolCard.elapsedHours', "{0}h {1}m", Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60);
 }
 
 function metaChip(kind: string, text: string): HTMLElement {

@@ -74,13 +74,19 @@ function num(value: unknown): number | undefined {
 	return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-/** `path` in a tool call may be absolute or relative; turn it into a root-relative prefix. */
-function relativeTo(root: string, value: string | undefined): string | undefined {
+/**
+ * `path` in a tool call may be absolute or relative; turn it into a root-relative prefix. A path
+ * outside the workspace is refused: ripgrep would search it, and agents are kept to the workspace.
+ */
+export function relativeTo(root: string, value: string | undefined): string | undefined {
 	if (!value || value === '.' || value === 'undefined' || value === 'null') {
 		return undefined;
 	}
-	const rel = path.isAbsolute(value) ? path.relative(root, value) : value;
-	return rel.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '') || undefined;
+	const rel = path.relative(root, path.resolve(root, value));
+	if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+		throw new Error(`${value} is outside the workspace (${root}). Search inside the workspace.`);
+	}
+	return rel.replace(/\\/g, '/') || undefined;
 }
 
 export const GREP_DESCRIPTION = [

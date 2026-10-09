@@ -3,12 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { DragonAgents } from './agents/agents';
-import { DragonChat, moveSession } from './chat/participant';
+import { DragonAgents, worktreesHome } from './agents/agents';
+import { agentWorktreesFolder } from './agents/worktree';
+import { autoCompactAt, DragonChat, moveSession, permissionMode } from './chat/participant';
 import { existsSync, statSync } from 'node:fs';
-import { buildDragonConfig, writeDragonConfig, writeSearchPlugin } from './dragonConfig';
+import { buildDragonConfig, confinementEnv, confinesToFolders, writeDragonConfig, writeSearchPlugin } from './dragonConfig';
+import { prepareSandbox } from './sandbox/sandbox';
 import { findRipgrep } from './search/ripgrep';
 import { DragonModels } from './models';
 import { OllamaService, ollamaOrigin } from './ollama/ollamaCommands';
@@ -51,9 +54,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		await writeSearchPlugin(agentsPluginDir, compiledAgentsPlugin, 'agent messaging');
 	}
 
+	// Shell commands: a third plugin keeps the server's password from them and runs them in the window's sandbox.
+	const compiledSandboxPlugin = newest([path.join(context.extensionPath, 'dist', 'sandboxPlugin.js'), path.join(context.extensionPath, 'out', 'sandbox', 'opencodePlugin.js')]);
+	const sandboxPluginDir = path.join(context.globalStorageUri.fsPath, 'opencode', 'sandbox');
+	if (compiledSandboxPlugin) {
+		await writeSearchPlugin(sandboxPluginDir, compiledSandboxPlugin, 'sandbox');
+	} else {
+		log.warn('[sandbox] the sandbox plugin was not built; agents\' shell commands run outside the sandbox');
+	}
+
+	// The plugin directories Dragon loads and trusts to run in OpenCode's process. Under confinement
+	// OpenCode loads only these, so a project's own in-process plugins, which cannot be sandboxed, do
+	// not run. The sandbox plugin that confinement relies on is always among them.
+	const trustedPlugins = [
+		compiledPlugin ? searchPluginDir : undefined,
+		compiledAgentsPlugin ? agentsPluginDir : undefined,
+		compiledSandboxPlugin ? sandboxPluginDir : undefined,
+	].filter((dir): dir is string => !!dir);
+
 	const syncConfig = async () => {
 		const model = vscode.workspace.getConfiguration('dragon').get<string>('model')?.trim() || undefined;
-		const config = buildDragonConfig({ model, ollamaOrigin: ollamaOrigin(), ollamaModels: ollama.status.models, splashModels: splash.models, searchPluginDir: instantGrep() ? searchPluginDir : undefined, agentsPluginDir: compiledAgentsPlugin ? agentsPluginDir : undefined });
+		const config = buildDragonConfig({ model, ollamaOrigin: ollamaOrigin(), ollamaModels: ollama.status.models, splashModels: splash.models, searchPluginDir: instantGrep() ? searchPluginDir : undefined, agentsPluginDir: compiledAgentsPlugin ? agentsPluginDir : undefined, sandboxPluginDir: compiledSandboxPlugin ? sandboxPluginDir : undefined, autoCompactAt: autoCompactAt() });
 		if (await writeDragonConfig(configFile, config)) {
 			log.info(`[config] wrote ${configFile}`);
 		}
@@ -69,20 +90,80 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	await syncConfig();
 	await syncSemantic();
 
+	// Agents' file tools are kept to the folders open in the window and the folders of their worktrees,
+	// and on macOS so are their shell commands, by a sandbox. Without one they run as they would without Dragon.
+	let sandboxWarned = false;
+	const sandbox = async (folders: readonly string[]): Promise<Record<string, string>> => {
+		if (process.platform !== 'darwin' || !compiledSandboxPlugin || !vscode.workspace.getConfiguration('dragon.agents').get<boolean>('sandbox', true)) {
+			return {};
+		}
+		const result = await prepareSandbox({ folders, home: os.homedir(), pathEnv: process.env.PATH ?? '' })
+			.catch(err => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }));
+		if (result.ok) {
+			log.info(`[sandbox] shell commands run in ${result.variables.DRAGON_SANDBOX_PROFILE}`);
+			return { ...result.variables };
+		}
+		log.warn(`[sandbox] shell commands run outside the sandbox: ${result.error}`);
+		if (!sandboxWarned) {
+			sandboxWarned = true;
+			void vscode.window.showWarningMessage(vscode.l10n.t('Agents\' shell commands run outside the sandbox, so they can reach files outside the open folders: {0}', result.error));
+		}
+		return {};
+	};
+	const serverEnv = async (): Promise<Record<string, string>> => {
+		const open = [...new Set([...(vscode.workspace.workspaceFolders ?? []).filter(f => f.uri.scheme === 'file').map(f => f.uri.fsPath), directory()])];
+		const worktrees = await Promise.all(open.map(folder => agentWorktreesFolder(folder, worktreesHome())));
+		const folders = [...open, ...worktrees.filter((folder): folder is string => !!folder)];
+		// Full Access reaches the whole disk; every other mode keeps agents to the open folders.
+		const mode = permissionMode();
+		const sandboxVariables = confinesToFolders(mode) ? await sandbox(folders) : {};
+		return {
+			...(rgPath ? { DRAGON_RG_PATH: rgPath } : {}),
+			DRAGON_SEARCH_STORAGE: path.join(context.globalStorageUri.fsPath, 'instant-grep'),
+			DRAGON_SEMANTIC_CONFIG: semanticConfigFile,
+			DRAGON_AGENTS_HUB: agentsHubFile(context),
+			...confinementEnv(mode, { folders, home: os.homedir(), tmpdir: os.tmpdir(), dataHome: process.env.XDG_DATA_HOME, openCodeHome: process.env.OPENCODE_TEST_HOME, trustedPlugins }, sandboxVariables),
+		};
+	};
 	const server = new OpenCodeServer({
 		configuredBinary: vscode.workspace.getConfiguration('dragon.opencode').get<string>('path'),
 		extensionPath: context.extensionPath,
 		cwd: directory(),
 		configFile,
-		extraEnv: {
-			...(rgPath ? { DRAGON_RG_PATH: rgPath } : {}),
-			DRAGON_SEARCH_STORAGE: path.join(context.globalStorageUri.fsPath, 'instant-grep'),
-			DRAGON_SEMANTIC_CONFIG: semanticConfigFile,
-			DRAGON_AGENTS_HUB: agentsHubFile(context),
-		},
+		extraEnv: await serverEnv(),
 		log: line => log.info(line),
 	});
 	context.subscriptions.push({ dispose: () => server.dispose() });
+	// Agents are kept to the folders the server started with: when those change, it restarts, so a folder
+	// taken out of the window is closed to them at once. One change at a time, so the last one wins.
+	let reconfining = Promise.resolve();
+	const reconfine = () => {
+		reconfining = reconfining.then(async () => server.reconfigure({ extraEnv: await serverEnv() }))
+			.catch(err => log.error(`[server] restart failed: ${err instanceof Error ? err.message : String(err)}`));
+	};
+	context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(reconfine));
+	// Switching into or out of Full Access changes whether agents are confined, which the server reads
+	// only at start; the other switches between confined modes leave the environment the same. Cycling
+	// the chip passes through modes on the way, so the restart waits for the mode to settle, and runs
+	// only when the settled mode is on the other side of the Full Access line from the running server.
+	let confinedNow = confinesToFolders(permissionMode());
+	let settle: ReturnType<typeof setTimeout> | undefined;
+	context.subscriptions.push({ dispose: () => { if (settle) { clearTimeout(settle); } } });
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+		if (!event.affectsConfiguration('dragon.permissionMode')) {
+			return;
+		}
+		if (settle) {
+			clearTimeout(settle);
+		}
+		settle = setTimeout(() => {
+			settle = undefined;
+			if (confinesToFolders(permissionMode()) !== confinedNow) {
+				confinedNow = !confinedNow;
+				reconfine();
+			}
+		}, 500);
+	}));
 
 	// One event stream from OpenCode, for the model picker and the composer's usage readout.
 	const bridge = new SessionBridge(() => server.ensure(), line => log.info(line));
@@ -99,7 +180,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		if (!sessionID && !model) {
 			return undefined;
 		}
-		return usage.summary({ sessionID, model }).catch(() => undefined);
+		return usage.summary({ sessionID, model, autoAt: autoCompactAt() }).catch(() => undefined);
 	}));
 	const agents = new DragonAgents(server, bridge, chat, context, log, agentsHubFile(context));
 	context.subscriptions.push(agents);
@@ -147,7 +228,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		splash.onDidChange(() => { void syncConfig().then(() => models.refresh()); }),
 		ollama.onDidChange(() => { void syncConfig(); models.refresh(); usage.invalidateModels(); }),
 		vscode.workspace.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration('dragon.model') || e.affectsConfiguration('dragon.ollama') || e.affectsConfiguration('dragon.instantGrep')) {
+			if (e.affectsConfiguration('dragon.model') || e.affectsConfiguration('dragon.ollama') || e.affectsConfiguration('dragon.instantGrep') || e.affectsConfiguration('dragon.compaction')) {
 				void syncConfig().then(() => models.refresh());
 			}
 			if (e.affectsConfiguration('dragon.semanticSearch') || e.affectsConfiguration('dragon.ollama')) {
@@ -155,8 +236,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			}
 			if (e.affectsConfiguration('dragon.opencode.path')) {
 				// New sessions pick up `dragon.workingDirectory` on their own; only a new binary needs a restart.
-				server.update({ configuredBinary: vscode.workspace.getConfiguration('dragon.opencode').get<string>('path'), cwd: directory() });
-				void server.restart().catch(err => log.error(`[server] restart failed: ${err instanceof Error ? err.message : String(err)}`));
+				void serverEnv().then(extraEnv => {
+					server.update({ configuredBinary: vscode.workspace.getConfiguration('dragon.opencode').get<string>('path'), cwd: directory(), extraEnv });
+					return server.restart();
+				}).catch(err => log.error(`[server] restart failed: ${err instanceof Error ? err.message : String(err)}`));
+			} else if (e.affectsConfiguration('dragon.workingDirectory') || e.affectsConfiguration('dragon.agents.worktreesFolder') || e.affectsConfiguration('dragon.agents.sandbox')) {
+				reconfine();
 			}
 		}),
 		vscode.commands.registerCommand('dragon.showLog', () => log.show()),

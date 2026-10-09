@@ -1345,6 +1345,55 @@ suite('Response', () => {
 		assert.strictEqual(IChatToolInvocation.isComplete(response.value[0]), true);
 	});
 
+	test('an external tool update while the tool runs shows its new message as the tool\'s progress', () => {
+		const response = store.add(new Response([]));
+		const update = (invocationMessage: string, isComplete = false) => response.updateContent({
+			kind: 'externalToolInvocationUpdate',
+			toolCallId: 'tool-call-progress',
+			toolName: 'shell',
+			isComplete,
+			invocationMessage: new MarkdownString(invocationMessage),
+			pastTenseMessage: isComplete ? new MarkdownString('Ran `npm test`') : undefined,
+		});
+		const progress = () => {
+			const part = response.value[0];
+			const state = part.kind === 'toolInvocation' ? part.state.get() : undefined;
+			return state?.type === IChatToolInvocation.StateKind.Executing ? state.progress.get().message : undefined;
+		};
+
+		update('Running a command');
+		update('Running `npm test` — 5s of its 2m timeout');
+		const running = progress();
+		update('Running `npm test` — 6s of its 2m timeout', true);
+
+		assert.deepStrictEqual({
+			parts: response.value.length,
+			running: running && typeof running !== 'string' ? running.value : running,
+			done: response.value[0].kind === 'toolInvocation' ? response.value[0].pastTenseMessage : undefined,
+		}, {
+			parts: 1,
+			running: 'Running `npm test` — 5s of its 2m timeout',
+			done: new MarkdownString('Ran `npm test`'),
+		});
+	});
+
+	test('a question carousel sent again as used closes the one already shown, as answered elsewhere', () => {
+		const response = store.add(new Response([]));
+		const questions = [{ id: 'decision', type: 'singleSelect' as const, title: 'Allow this?' }];
+		response.updateContent({ kind: 'questionCarousel', questions, allowSkip: false, resolveId: 'carousel-1' });
+		response.updateContent({ kind: 'questionCarousel', questions, allowSkip: false, resolveId: 'carousel-2' });
+		const shown = response.value[0];
+		response.updateContent({ kind: 'questionCarousel', questions, allowSkip: false, resolveId: 'carousel-1', data: {}, isUsed: true, answeredExternally: true });
+
+		assert.deepStrictEqual({
+			parts: response.value.map(part => part.kind === 'questionCarousel' ? `${part.resolveId} ${part.isUsed ? 'used' : 'open'}${part.answeredExternally ? ' elsewhere' : ''}` : part.kind),
+			sameObject: response.value[0] === shown,
+		}, {
+			parts: ['carousel-1 used elsewhere', 'carousel-2 open'],
+			sameObject: true,
+		});
+	});
+
 	test('response stringification prefers terminal display command over sandbox wrapper', () => {
 		const response = store.add(new Response([]));
 		const sandboxWrappedCommand = `ELECTRON_RUN_AS_NODE=1 TMPDIR="/tmp/vscode" "Code - Insiders" "sandbox-runtime" -c 'npm test'`;
@@ -1998,6 +2047,34 @@ suite('ChatResponseModel', () => {
 		assert.strictEqual(toolInvocation.state.get().type, IChatToolInvocation.StateKind.Cancelled);
 		assert.strictEqual(IChatToolInvocation.isComplete(toolInvocation), true);
 		assert.strictEqual(response.state, ResponseModelState.Cancelled);
+	});
+
+	test('cancellation ends an extension\'s tool that is still running, and leaves a running built-in one to its tool service', async () => {
+		const model = testDisposables.add(instantiationService.createInstance(ChatModel, undefined, { initialLocation: ChatAgentLocation.Chat, canUseTools: true }));
+
+		const text = 'run a command';
+		const request = model.addRequest({ text, parts: [new ChatRequestTextPart(new OffsetRange(0, text.length), new Range(1, text.length, 1, text.length), text)] }, { variables: [] }, 0);
+		// An extension's tool reports its end through the response, which takes nothing once cancelled.
+		model.acceptResponseProgress(request, { kind: 'externalToolInvocationUpdate', toolCallId: 'external-1', toolName: 'shell', isComplete: false, invocationMessage: 'Running a command' });
+		model.acceptResponseProgress(request, { kind: 'externalToolInvocationUpdate', toolCallId: 'external-1', toolName: 'shell', isComplete: false, invocationMessage: 'Running `npm test`' });
+		model.acceptResponseProgress(request, new ChatToolInvocation({ invocationMessage: 'Running command' }, {
+			id: 'run_in_terminal',
+			modelDescription: 'Run a command',
+			displayName: 'Run in Terminal',
+			source: ToolDataSource.Internal,
+		}, 'tool-call-1', undefined, {}, {}));
+		const states = () => request.response!.response.value.map(part => part.kind === 'toolInvocation' ? part.state.get().type : part.kind);
+		const running = states();
+
+		model.cancelRequest(request);
+
+		// It keeps what it showed last rather than what it was first called.
+		const external = request.response!.response.value[0];
+		assert.deepStrictEqual({ running, cancelled: states(), message: external.kind === 'toolInvocation' ? external.invocationMessage : undefined }, {
+			running: [IChatToolInvocation.StateKind.Executing, IChatToolInvocation.StateKind.Executing],
+			cancelled: [IChatToolInvocation.StateKind.Cancelled, IChatToolInvocation.StateKind.Executing],
+			message: 'Running `npm test`',
+		});
 	});
 
 	test('completed tool invocation ignores duplicate completion', async () => {

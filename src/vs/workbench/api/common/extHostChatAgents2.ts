@@ -337,7 +337,7 @@ export class ChatAgentResponseStream {
 					_report(dto);
 					return this;
 				},
-				async questionCarousel(questions: vscode.ChatQuestion[], allowSkip = true): Promise<Record<string, unknown> | undefined> {
+				async questionCarousel(questions: vscode.ChatQuestion[], allowSkip = true, token?: vscode.CancellationToken): Promise<Record<string, unknown> | undefined> {
 					throwIfDone(this.questionCarousel);
 					checkProposedApiEnabled(that._extension, 'chatParticipantAdditions');
 
@@ -357,8 +357,25 @@ export class ChatAgentResponseStream {
 
 					_report(dto);
 
+					// DRAGON: answered somewhere else, the carousel closes as answered: sent again as used, it
+					// replaces the one shown.
+					const settled = token?.onCancellationRequested(() => {
+						if (deferred.isSettled) {
+							return;
+						}
+						that._pendingCarouselResolvers.get(that._request.requestId)?.delete(resolveId);
+						if (!that._isClosed) {
+							_report({ ...dto, data: {}, isUsed: true, answeredExternally: true });
+						}
+						deferred.complete(undefined);
+					});
+
 					// Wait for the user to submit answers, but respect cancellation
-					return raceCancellation(deferred.p, that._token);
+					try {
+						return await raceCancellation(deferred.p, that._token);
+					} finally {
+						settled?.dispose();
+					}
 				},
 				beginToolInvocation(toolCallId, toolName, streamData) {
 					throwIfDone(this.beginToolInvocation);

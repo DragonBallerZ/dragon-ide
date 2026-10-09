@@ -4,42 +4,48 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/composerChips.css';
-import { addDisposableListener, EventType, getActiveWindow, h, reset } from '../../../../base/browser/dom.js';
+import { addDisposableListener, EventType, getActiveWindow, h, reset, scheduleAtNextAnimationFrame } from '../../../../base/browser/dom.js';
+import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { basename } from '../../../../base/common/path.js';
 import { basename as resourceBasename } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 
 /**
- * How much OpenCode may do without asking, read by the dragon-agent extension:
- *   read-only   - the plan agent runs and every permission request is denied
- *   ask         - OpenCode asks in the chat before edits and commands (default)
- *   full-access - every permission request is approved
+ * How much OpenCode may do without asking, and whether it is kept to the open project, read by the
+ * dragon-agent extension:
+ *   read-only   - the plan agent runs and every permission request is denied; project only
+ *   ask         - OpenCode asks in the chat before edits and commands (default); project only
+ *   project     - OpenCode edits and runs commands without asking, but only inside the open project
+ *   full-access - OpenCode edits and runs commands without asking, across the whole disk
  */
-export type DragonPermissionMode = 'read-only' | 'ask' | 'full-access';
+export type DragonPermissionMode = 'read-only' | 'ask' | 'project' | 'full-access';
 export const DRAGON_PERMISSION_SETTING = 'dragon.permissionMode';
-const CYCLE: DragonPermissionMode[] = ['read-only', 'ask', 'full-access'];
+const CYCLE: DragonPermissionMode[] = ['read-only', 'ask', 'project', 'full-access'];
 
 const LABELS: Record<DragonPermissionMode, string> = {
 	'read-only': localize('dragon.permission.readOnly', "Read-Only"),
 	'ask': localize('dragon.permission.ask', "Ask"),
+	'project': localize('dragon.permission.project', "Project Only"),
 	'full-access': localize('dragon.permission.full', "Full Access"),
 };
 
 const GLYPHS: Record<DragonPermissionMode, string> = {
 	'read-only': '\u25CB',
 	'ask': '\u25D0',
+	'project': '\u25C9',
 	'full-access': '\u25CF',
 };
 
 const TOOLTIPS: Record<DragonPermissionMode, string> = {
 	'read-only': localize('dragon.permission.readOnly.tooltip', "Read-Only: OpenCode plans and answers but may not change files or run commands. Click to switch to Ask."),
-	'ask': localize('dragon.permission.ask.tooltip', "Ask: OpenCode asks in the chat before it edits files or runs commands. Click to switch to Full Access."),
-	'full-access': localize('dragon.permission.full.tooltip', "Full Access: OpenCode edits files and runs commands without asking. Click to switch to Read-Only."),
+	'ask': localize('dragon.permission.ask.tooltip', "Ask: OpenCode asks in the chat before it edits files or runs commands. Click to switch to Project Only."),
+	'project': localize('dragon.permission.project.tooltip', "Project Only: OpenCode edits files and runs commands without asking, but only inside the open project, never the rest of your disk. Click to switch to Full Access."),
+	'full-access': localize('dragon.permission.full.tooltip', "Full Access: OpenCode edits files and runs commands without asking, and can reach your whole disk. Click to switch to Read-Only."),
 };
 
 /** The composer chip that cycles the Dragon permission mode. */
@@ -81,8 +87,8 @@ export class DragonPermissionToggle extends Disposable {
 	private refresh(): void {
 		const raw = this.configurationService.getValue<string>(DRAGON_PERMISSION_SETTING);
 		this.current = CYCLE.includes(raw as DragonPermissionMode) ? raw as DragonPermissionMode : 'ask';
-		this.domNode.classList.remove('dragon-permission-readonly', 'dragon-permission-ask', 'dragon-permission-full');
-		this.domNode.classList.add(this.current === 'read-only' ? 'dragon-permission-readonly' : this.current === 'ask' ? 'dragon-permission-ask' : 'dragon-permission-full');
+		this.domNode.classList.remove('dragon-permission-readonly', 'dragon-permission-ask', 'dragon-permission-project', 'dragon-permission-full');
+		this.domNode.classList.add(this.current === 'read-only' ? 'dragon-permission-readonly' : this.current === 'ask' ? 'dragon-permission-ask' : this.current === 'project' ? 'dragon-permission-project' : 'dragon-permission-full');
 		reset(this.glyph, GLYPHS[this.current]);
 		reset(this.label, LABELS[this.current]);
 		this.domNode.title = TOOLTIPS[this.current];
@@ -99,6 +105,14 @@ export interface DragonChatSource {
 
 export const DRAGON_SESSION_DIRECTORY_COMMAND = 'dragon.agents.directory';
 const CHAT_REFRESH_MS = 3000;
+
+/**
+ * Has every chat's chips read their state again. The extension runs it when a chat gets its
+ * session or an agent changes, which the chips would otherwise learn at their next refresh.
+ */
+export const DRAGON_REFRESH_CHIPS_COMMAND = '_dragon.chat.refreshChips';
+const onDidRequestRefresh = new Emitter<void>();
+CommandsRegistry.registerCommand(DRAGON_REFRESH_CHIPS_COMMAND, () => onDidRequestRefresh.fire());
 
 /**
  * The composer chip showing the directory this chat's agent works in (a worktree of its own for an
@@ -139,12 +153,14 @@ export class DragonDirectoryToggle extends Disposable {
 		}));
 		container.appendChild(this.domNode);
 		// A chat gets its session, and with it its directory, after the composer is made.
+		this._register(onDidRequestRefresh.event(() => this.refresh()));
 		const timer = getActiveWindow().setInterval(() => this.refresh(), CHAT_REFRESH_MS);
 		this._register(toDisposable(() => getActiveWindow().clearInterval(timer)));
 		this.refresh();
 	}
 
-	private refresh(): void {
+	/** Reads the directory again; called on a timer and when the chat changes. */
+	refresh(): void {
 		const sessionResource = this.source.sessionResource()?.toString();
 		const generation = ++this.generation;
 		const show = (own: string | undefined) => {
@@ -180,8 +196,8 @@ export class DragonDirectoryToggle extends Disposable {
 /**
  * Whether this chat's agent may exchange messages with the window's other agents, as the
  * dragon-agent extension reports it:
- *   off   - it cannot send or receive, and other agents do not see it (default)
- *   on    - it can message other agents, and their messages start a turn here
+ *   off   - it cannot send or receive, and other agents do not see it
+ *   on    - it can message other agents, and their messages start a turn here (default)
  *   muted - messages for it are kept, but never start a turn
  */
 export type DragonMessagingMode = 'off' | 'on' | 'muted';
@@ -245,11 +261,15 @@ export class DragonMessagingToggle extends Disposable {
 			this.request(DRAGON_MESSAGING_CYCLE_COMMAND);
 		}));
 		container.appendChild(this.domNode);
-		this.render(undefined);
-		// The state also changes from outside the chip: a new team, or a teammate the lead spawned.
+		// On is the default, until the extension says otherwise; a chip that cannot ask shows Off.
+		this.render({ mode: 'on' });
+		// The state also changes from outside the chip: a chat New Agent opened gets its session, a new
+		// team, a teammate the lead spawned. The extension says when; the timer catches what it misses.
+		this._register(onDidRequestRefresh.event(() => this.refresh()));
 		const timer = getActiveWindow().setInterval(() => this.refresh(), CHAT_REFRESH_MS);
 		this._register(toDisposable(() => getActiveWindow().clearInterval(timer)));
-		this.refresh();
+		// The input is not in the page yet when the chip is made, so it asks once it is.
+		this._register(scheduleAtNextAnimationFrame(getActiveWindow(), () => this.refresh()));
 	}
 
 	/** Reads the state again; called on a timer and when the chat changes. */
